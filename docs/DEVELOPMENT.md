@@ -46,9 +46,16 @@ cd apps/desktop
 npm run tauri:dev
 ```
 
+Sprint 2 speech endpoint quick test:
+```bash
+curl -X POST http://127.0.0.1:7777/v1/speak \
+  -H "content-type: application/json" \
+  -d '{"text":"hello","voice":"system-default"}'
+```
+
 Run unit tests:
 ```bash
-cargo test -p core-daemon -- --nocapture
+cargo test -p core-daemon --lib -- --nocapture
 ```
 
 ## Engineering Guidelines (latest)

@@ -14,10 +14,16 @@
 - [x] UI live event timeline panel
 - [x] Tauri wrapper bootstrap
 
-## Sprint 2 (next)
-- TTS adapters (macOS/Windows)
-- Voice toggles and interruption
-- Daemon speech endpoints
+## Sprint 2 (in progress)
+- [x] Daemon speech endpoints (`/v1/speak`, `/v1/speak/stop`)
+- [x] UI speak/stop controls wired to API
+- [x] Speech lifecycle events in websocket timeline
+- [x] Voice config API (`provider`, `auto_speak`, `default_voice`)
+- [x] Voice provider health endpoint
+- [x] UI toggle for auto-speak setting
+- [x] Native TTS command adapters (Linux/macOS/Windows command path)
+- [x] Voice interruption refinements (cancel active speech on new request)
+- [x] UI speaking state + stop guardrails
 
 ## Sprint 3
 - Folder opt-in

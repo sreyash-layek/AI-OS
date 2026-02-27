@@ -15,11 +15,17 @@
         <h1>AI-OS</h1>
         <p class="subtitle">Local-first AI launcher — Sprint 1 shell</p>
         <div id="status" class="status checking">Checking daemon...</div>
+        <div id="speech-state" class="status">Speech: idle</div>
         <input id="prompt" placeholder="Try: Open downloads and summarize latest PDF" />
         <div class="actions">
           <button id="send">Send</button>
-          <button id="voice" class="ghost">Voice</button>
+          <button id="voice" class="ghost">Speak</button>
+          <button id="stop" class="ghost">Stop</button>
         </div>
+        <label class="toggle-row">
+          <input id="auto-speak" type="checkbox" />
+          Auto-speak assistant replies
+        </label>
         <pre id="response">Ready.</pre>
         <section class="preview">
           <h3>Action Preview</h3>

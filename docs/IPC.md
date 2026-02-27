@@ -51,7 +51,78 @@ Sends lightweight lifecycle events as JSON:
 }
 ```
 
+### POST /v1/speak
+Request:
+
+```json
+{
+  "text": "Hello from AI-OS",
+  "voice": "system-default"
+}
+```
+
+Response:
+
+```json
+{
+  "ok": true,
+  "request_id": "<uuid>",
+  "mode": "mock"
+}
+```
+
+### POST /v1/speak/stop
+Response:
+
+```json
+{ "ok": true }
+```
+
+Speech lifecycle events are emitted over `/v1/events`:
+- `speech_started`
+- `speech_stopped`
+
+### GET /v1/config/voice
+Returns voice settings:
+
+```json
+{
+  "provider": "mock",
+  "auto_speak": false,
+  "default_voice": "system-default"
+}
+```
+
+### POST /v1/config/voice
+Partial update payload:
+
+```json
+{
+  "auto_speak": true
+}
+```
+
+### GET /v1/config/voice/health
+Returns provider health resolution:
+
+```json
+{
+  "configured_provider": "system",
+  "effective_provider": "mock",
+  "available": false,
+  "detail": "system requested, but spd-say not found; using mock"
+}
+```
+
+## Notes
+- `mock` provider simulates duration based on text length.
+- `system` provider routing:
+  - Linux: `spd-say`
+  - macOS: `say`
+  - Windows: PowerShell + .NET SpeechSynthesizer
+- If requested system provider is unavailable, daemon falls back to `mock` and reports this in `/v1/config/voice/health`.
+
 ## Next
-- Add tool-call envelope format
+- Add tool-call envelope format v2 with policy hints
 - Add permission prompt event schema
-- Move to structured JSON event payloads
+- Replace command-based system TTS with native API adapters where possible
