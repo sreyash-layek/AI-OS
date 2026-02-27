@@ -23,12 +23,18 @@ Request:
 }
 ```
 
-Response (Sprint 1 mock):
+Response (Sprint 1 mock + tool preview envelope):
 
 ```json
 {
   "reply": "Sprint 1 scaffold active...",
-  "mode": "mock"
+  "mode": "mock",
+  "tool_preview": {
+    "name": "open_app_or_file",
+    "risk_tier": 1,
+    "requires_confirmation": false,
+    "note": "Low-risk open action..."
+  }
 }
 ```
 

@@ -80,3 +80,11 @@ pre {
   padding: .8rem;
   white-space: pre-wrap;
 }
+.preview {
+  margin-top: .8rem;
+}
+.preview h3 {
+  margin: 0 0 .4rem;
+  font-size: .9rem;
+  color: #c9d4ff;
+}

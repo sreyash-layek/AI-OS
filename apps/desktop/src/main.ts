@@ -3,6 +3,7 @@ const sendBtn = document.getElementById("send") as HTMLButtonElement;
 const voiceBtn = document.getElementById("voice") as HTMLButtonElement;
 const responseEl = document.getElementById("response") as HTMLPreElement;
 const statusEl = document.getElementById("status") as HTMLDivElement;
+const toolPreviewEl = document.getElementById("tool-preview") as HTMLPreElement;
 
 async function sendMessage() {
   const message = promptInput.value.trim();
@@ -19,6 +20,10 @@ async function sendMessage() {
 
     const data = await res.json();
     responseEl.textContent = data.reply ?? "No response";
+
+    if (data.tool_preview) {
+      toolPreviewEl.textContent = JSON.stringify(data.tool_preview, null, 2);
+    }
   } catch (err) {
     responseEl.textContent = `Daemon offline. Start core-daemon first.\n\n${String(err)}`;
   }

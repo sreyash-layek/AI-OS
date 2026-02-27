@@ -4,7 +4,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, sync::Arc};
 use tokio::time::{sleep, Duration};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
@@ -15,22 +14,8 @@ struct AppState {
     name: Arc<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct ChatRequest {
-    message: String,
-}
-
-#[derive(Debug, Serialize)]
-struct ChatResponse {
-    reply: String,
-    mode: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-struct HealthResponse {
-    service: String,
-    status: &'static str,
-}
+mod types;
+use types::{ChatRequest, ChatResponse, HealthResponse, ToolPreview};
 
 #[tokio::main]
 async fn main() {
@@ -68,12 +53,39 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 async fn chat(Json(req): Json<ChatRequest>) -> impl IntoResponse {
+    let normalized = req.message.to_lowercase();
+
+    let tool_preview = if normalized.contains("open") {
+        ToolPreview {
+            name: "open_app_or_file".to_string(),
+            risk_tier: 1,
+            requires_confirmation: false,
+            note: "Low-risk open action. Execution engine stub only in Sprint 1.".to_string(),
+        }
+    } else if normalized.contains("delete") || normalized.contains("remove") {
+        ToolPreview {
+            name: "delete_file".to_string(),
+            risk_tier: 2,
+            requires_confirmation: true,
+            note: "High-risk action. Confirmation required (policy engine in later sprint)."
+                .to_string(),
+        }
+    } else {
+        ToolPreview {
+            name: "search_files_semantic".to_string(),
+            risk_tier: 0,
+            requires_confirmation: false,
+            note: "Read-only search action. Stub routing for now.".to_string(),
+        }
+    };
+
     Json(ChatResponse {
         reply: format!(
             "Sprint 1 scaffold active. Received: '{}'. Tool execution will be added next.",
             req.message
         ),
         mode: "mock",
+        tool_preview,
     })
 }
 

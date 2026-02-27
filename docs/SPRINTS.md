@@ -8,6 +8,8 @@
 - [x] Vite desktop shell UI (futuristic launcher prototype)
 - [x] Daemon health badge in UI
 - [x] WebSocket event stub (daemon -> UI)
+- [x] Tool preview envelope stub (`/v1/chat`)
+- [x] UI action preview panel
 - [x] Tauri wrapper bootstrap
 
 ## Sprint 2 (next)
