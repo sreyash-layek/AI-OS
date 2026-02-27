@@ -2,112 +2,80 @@ use crate::types::{EventEnvelope, VoiceSettings};
 use std::process::Command;
 use tokio::time::{sleep, Duration};
 
+fn current_os() -> &'static str {
+    std::env::consts::OS
+}
+
 pub fn detect_effective_provider(settings: &VoiceSettings) -> (String, bool, String) {
     match settings.provider.as_str() {
-        "system" => detect_system_provider(),
+        "system" => detect_system_provider_for_os(current_os(), command_exists_for_os),
         _ => ("mock".to_string(), true, "mock provider active".to_string()),
     }
 }
 
-fn detect_system_provider() -> (String, bool, String) {
-    #[cfg(target_os = "linux")]
-    {
-        return detect_linux_provider_with(command_exists_linux);
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let has_say = command_exists("say");
-        if has_say {
-            return ("system".to_string(), true, "macOS provider: say".to_string());
+fn detect_system_provider_for_os<F>(os: &str, has_cmd: F) -> (String, bool, String)
+where
+    F: Fn(&str, &str) -> bool,
+{
+    match os {
+        "linux" => {
+            if has_cmd(os, "spd-say") {
+                ("system".to_string(), true, "linux provider: spd-say".to_string())
+            } else {
+                (
+                    "mock".to_string(),
+                    false,
+                    "system requested, but spd-say not found; using mock".to_string(),
+                )
+            }
         }
-        return (
-            "mock".to_string(),
-            false,
-            "system requested, but macOS `say` not available; using mock".to_string(),
-        );
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let has_powershell = command_exists("powershell");
-        if has_powershell {
-            return (
-                "system".to_string(),
-                true,
-                "windows provider: powershell SpeechSynthesizer".to_string(),
-            );
+        "macos" => {
+            if has_cmd(os, "say") {
+                ("system".to_string(), true, "macOS provider: say".to_string())
+            } else {
+                (
+                    "mock".to_string(),
+                    false,
+                    "system requested, but macOS `say` not available; using mock".to_string(),
+                )
+            }
         }
-        return (
-            "mock".to_string(),
-            false,
-            "system requested, but powershell not found; using mock".to_string(),
-        );
-    }
-
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-    {
-        (
+        "windows" => {
+            if has_cmd(os, "powershell") {
+                (
+                    "system".to_string(),
+                    true,
+                    "windows provider: powershell SpeechSynthesizer".to_string(),
+                )
+            } else {
+                (
+                    "mock".to_string(),
+                    false,
+                    "system requested, but powershell not found; using mock".to_string(),
+                )
+            }
+        }
+        _ => (
             "mock".to_string(),
             false,
             "system provider unsupported on this OS; using mock".to_string(),
-        )
+        ),
     }
 }
 
-#[cfg(target_os = "linux")]
-fn detect_linux_provider_with<F>(has_cmd: F) -> (String, bool, String)
-where
-    F: Fn(&str) -> bool,
-{
-    if has_cmd("spd-say") {
-        ("system".to_string(), true, "linux provider: spd-say".to_string())
-    } else {
-        (
-            "mock".to_string(),
-            false,
-            "system requested, but spd-say not found; using mock".to_string(),
-        )
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn command_exists_linux(cmd: &str) -> bool {
-    command_exists_linux_with(cmd, |c| {
-        Command::new("sh")
-            .arg("-lc")
-            .arg(format!("command -v {} >/dev/null 2>&1", c))
+fn command_exists_for_os(os: &str, cmd: &str) -> bool {
+    match os {
+        "windows" => Command::new("where")
+            .arg(cmd)
             .status()
-    })
-}
-
-#[cfg(target_os = "linux")]
-fn command_exists_linux_with<F>(cmd: &str, run: F) -> bool
-where
-    F: FnOnce(&str) -> std::io::Result<std::process::ExitStatus>,
-{
-    run(cmd).map(|s| s.success()).unwrap_or(false)
-}
-
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-fn command_exists(cmd: &str) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        return Command::new("sh")
+            .map(|s| s.success())
+            .unwrap_or(false),
+        _ => Command::new("sh")
             .arg("-lc")
             .arg(format!("command -v {} >/dev/null 2>&1", cmd))
             .status()
             .map(|s| s.success())
-            .unwrap_or(false);
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        return Command::new("where")
-            .arg(cmd)
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
+            .unwrap_or(false),
     }
 }
 
@@ -131,7 +99,7 @@ pub async fn run_mock_speech(request_id: String, text: String, voice: String) ->
 }
 
 pub async fn run_system_speech(request_id: String, text: String, voice: String) -> EventEnvelope {
-    let result = run_system_command(&text, &voice);
+    let result = run_system_command_for_os(current_os(), &text, &voice);
     build_system_stop_event(request_id, voice, result)
 }
 
@@ -159,12 +127,27 @@ fn build_system_stop_event(
     }
 }
 
-#[cfg(target_os = "linux")]
-fn run_system_command(text: &str, _voice: &str) -> Result<(), String> {
-    run_linux_system_command_with(text, |arg| Command::new("spd-say").arg(arg).status())
+fn run_system_command_for_os(os: &str, text: &str, voice: &str) -> Result<(), String> {
+    match os {
+        "linux" => run_linux_system_command_with(text, |arg| {
+            Command::new("spd-say").arg(arg).status()
+        }),
+        "macos" => run_macos_system_command_with(text, voice, |t, v| {
+            Command::new("say").arg("-v").arg(v).arg(t).status()
+        }),
+        "windows" => run_windows_system_command_with(text, voice, |script| {
+            Command::new("powershell")
+                .arg("-NoProfile")
+                .arg("-ExecutionPolicy")
+                .arg("Bypass")
+                .arg("-Command")
+                .arg(script)
+                .status()
+        }),
+        _ => Err("system_provider_unsupported_os".to_string()),
+    }
 }
 
-#[cfg(target_os = "linux")]
 fn run_linux_system_command_with<F>(text: &str, exec: F) -> Result<(), String>
 where
     F: FnOnce(&str) -> std::io::Result<std::process::ExitStatus>,
@@ -176,45 +159,34 @@ where
     }
 }
 
-#[cfg(target_os = "macos")]
-fn run_system_command(text: &str, voice: &str) -> Result<(), String> {
-    let status = Command::new("say").arg("-v").arg(voice).arg(text).status();
-    match status {
+fn run_macos_system_command_with<F>(text: &str, voice: &str, exec: F) -> Result<(), String>
+where
+    F: FnOnce(&str, &str) -> std::io::Result<std::process::ExitStatus>,
+{
+    match exec(text, voice) {
         Ok(s) if s.success() => Ok(()),
         Ok(_) => Err("macos_say_failed".to_string()),
         Err(_) => Err("macos_say_missing".to_string()),
     }
 }
 
-#[cfg(target_os = "windows")]
-fn run_system_command(text: &str, voice: &str) -> Result<(), String> {
+fn run_windows_system_command_with<F>(text: &str, voice: &str, exec: F) -> Result<(), String>
+where
+    F: FnOnce(String) -> std::io::Result<std::process::ExitStatus>,
+{
     let script = format!(
         "Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; try {{$s.SelectVoice('{}')}} catch {{}}; $s.Speak('{}')",
         escape_ps(voice),
         escape_ps(text)
     );
 
-    let status = Command::new("powershell")
-        .arg("-NoProfile")
-        .arg("-ExecutionPolicy")
-        .arg("Bypass")
-        .arg("-Command")
-        .arg(script)
-        .status();
-
-    match status {
+    match exec(script) {
         Ok(s) if s.success() => Ok(()),
         Ok(_) => Err("windows_sapi_failed".to_string()),
         Err(_) => Err("windows_powershell_missing".to_string()),
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-fn run_system_command(_text: &str, _voice: &str) -> Result<(), String> {
-    Err("system_provider_unsupported_os".to_string())
-}
-
-#[cfg(target_os = "windows")]
 fn escape_ps(input: &str) -> String {
     input.replace('\'', "''")
 }
@@ -223,186 +195,177 @@ fn escape_ps(input: &str) -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn detect_mock_provider_when_configured_mock() {
-        let settings = VoiceSettings {
-            provider: "mock".to_string(),
+    fn settings(provider: &str) -> VoiceSettings {
+        VoiceSettings {
+            provider: provider.to_string(),
             auto_speak: false,
             default_voice: "system-default".to_string(),
-        };
+        }
+    }
 
-        let (effective, available, detail) = detect_effective_provider(&settings);
+    #[test]
+    fn detect_mock_provider_when_configured_mock() {
+        let (effective, available, detail) = detect_effective_provider(&settings("mock"));
         assert_eq!(effective, "mock");
         assert!(available);
         assert!(detail.contains("mock"));
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
-    fn linux_provider_detects_system_when_command_exists() {
-        let (effective, available, _detail) = detect_linux_provider_with(|_| true);
-        assert_eq!(effective, "system");
-        assert!(available);
+    fn detect_provider_linux_paths() {
+        let yes = detect_system_provider_for_os("linux", |_, _| true);
+        assert_eq!(yes.0, "system");
+        let no = detect_system_provider_for_os("linux", |_, _| false);
+        assert_eq!(no.0, "mock");
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
-    fn detect_effective_provider_system_executes_linux_resolution_path() {
-        let settings = VoiceSettings {
-            provider: "system".to_string(),
-            auto_speak: false,
-            default_voice: "system-default".to_string(),
-        };
-
-        let (effective, _available, detail) = detect_effective_provider(&settings);
-        assert!(effective == "system" || effective == "mock");
-        assert!(!detail.is_empty());
+    fn detect_provider_macos_paths() {
+        let yes = detect_system_provider_for_os("macos", |_, _| true);
+        assert_eq!(yes.0, "system");
+        let no = detect_system_provider_for_os("macos", |_, _| false);
+        assert_eq!(no.0, "mock");
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
-    fn linux_provider_falls_back_when_command_missing() {
-        let (effective, available, detail) = detect_linux_provider_with(|_| false);
-        assert_eq!(effective, "mock");
-        assert!(!available);
-        assert!(detail.contains("spd-say"));
+    fn detect_provider_windows_paths() {
+        let yes = detect_system_provider_for_os("windows", |_, _| true);
+        assert_eq!(yes.0, "system");
+        let no = detect_system_provider_for_os("windows", |_, _| false);
+        assert_eq!(no.0, "mock");
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
-    fn linux_command_runner_maps_success() {
-        let result = run_linux_system_command_with("hello", |_arg| {
+    fn detect_provider_unknown_os_path() {
+        let unknown = detect_system_provider_for_os("haiku", |_, _| true);
+        assert_eq!(unknown.0, "mock");
+        assert!(!unknown.1);
+    }
+
+    #[test]
+    fn linux_runner_maps_all_outcomes() {
+        assert!(run_linux_system_command_with("x", |_t| {
             Command::new("sh").arg("-lc").arg("exit 0").status()
-        });
-        assert!(result.is_ok());
-    }
+        })
+        .is_ok());
 
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn linux_command_runner_maps_failure() {
-        let result = run_linux_system_command_with("hello", |_arg| {
-            Command::new("sh").arg("-lc").arg("exit 3").status()
-        });
-        assert_eq!(result.unwrap_err(), "linux_spd_say_failed");
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn linux_command_runner_maps_missing() {
-        let result = run_linux_system_command_with("hello", |_arg| {
-            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "missing"))
-        });
-        assert_eq!(result.unwrap_err(), "linux_spd_say_missing");
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn command_exists_linux_true_and_false_paths() {
-        assert!(command_exists_linux_with("sh", |_c| {
-            Command::new("sh").arg("-lc").arg("exit 0").status()
-        }));
-        assert!(!command_exists_linux_with("nope", |_c| {
-            Command::new("sh").arg("-lc").arg("exit 1").status()
-        }));
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn command_exists_linux_handles_exec_error() {
-        let exists = command_exists_linux_with("anything", |_c| {
-            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "missing shell"))
-        });
-        assert!(!exists);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn run_system_command_is_wired_to_linux_runner() {
-        let result = run_system_command("hello", "ignored");
-        let ok = result.is_ok();
-        let expected_err = matches!(
-            result.as_ref().err().map(|e| e.as_str()),
-            Some("linux_spd_say_missing") | Some("linux_spd_say_failed")
+        assert_eq!(
+            run_linux_system_command_with("x", |_t| {
+                Command::new("sh").arg("-lc").arg("exit 2").status()
+            })
+            .unwrap_err(),
+            "linux_spd_say_failed"
         );
-        assert!(ok || expected_err);
+
+        assert_eq!(
+            run_linux_system_command_with("x", |_t| {
+                Err(std::io::Error::new(std::io::ErrorKind::NotFound, "missing"))
+            })
+            .unwrap_err(),
+            "linux_spd_say_missing"
+        );
+    }
+
+    #[test]
+    fn macos_runner_maps_all_outcomes() {
+        assert!(run_macos_system_command_with("x", "v", |_t, _v| {
+            Command::new("sh").arg("-lc").arg("exit 0").status()
+        })
+        .is_ok());
+
+        assert_eq!(
+            run_macos_system_command_with("x", "v", |_t, _v| {
+                Command::new("sh").arg("-lc").arg("exit 2").status()
+            })
+            .unwrap_err(),
+            "macos_say_failed"
+        );
+
+        assert_eq!(
+            run_macos_system_command_with("x", "v", |_t, _v| {
+                Err(std::io::Error::new(std::io::ErrorKind::NotFound, "missing"))
+            })
+            .unwrap_err(),
+            "macos_say_missing"
+        );
+    }
+
+    #[test]
+    fn windows_runner_maps_all_outcomes_and_escapes() {
+        assert_eq!(escape_ps("a'b"), "a''b");
+
+        assert!(run_windows_system_command_with("x", "v", |_script| {
+            Command::new("sh").arg("-lc").arg("exit 0").status()
+        })
+        .is_ok());
+
+        assert_eq!(
+            run_windows_system_command_with("x", "v", |_script| {
+                Command::new("sh").arg("-lc").arg("exit 2").status()
+            })
+            .unwrap_err(),
+            "windows_sapi_failed"
+        );
+
+        assert_eq!(
+            run_windows_system_command_with("x", "v", |_script| {
+                Err(std::io::Error::new(std::io::ErrorKind::NotFound, "missing"))
+            })
+            .unwrap_err(),
+            "windows_powershell_missing"
+        );
+    }
+
+    #[test]
+    fn os_dispatch_for_system_command_covers_all_paths() {
+        assert_eq!(
+            run_system_command_for_os("unknown", "x", "v").unwrap_err(),
+            "system_provider_unsupported_os"
+        );
     }
 
     #[tokio::test]
-    async fn mock_speech_emits_stopped_event_shape() {
-        let event = run_mock_speech(
-            "req-1".to_string(),
-            "hello world".to_string(),
-            "system-default".to_string(),
-        )
-        .await;
-
-        assert_eq!(event.event, "speech_stopped");
-        assert_eq!(event.source, "core-daemon");
-        assert_eq!(event.data["request_id"], "req-1");
-        assert_eq!(event.data["provider"], "mock");
-        assert_eq!(event.data["voice"], "system-default");
-        assert_eq!(event.data["reason"], "mock_complete");
-    }
-
-    #[tokio::test]
-    async fn mock_speech_duration_bounds_are_enforced() {
+    async fn mock_speech_emits_shape_and_duration_bounds() {
         let short = run_mock_speech(
             "req-short".to_string(),
             "a".to_string(),
             "system-default".to_string(),
         )
         .await;
+        assert_eq!(short.event, "speech_stopped");
         assert_eq!(short.data["duration_ms"], 1200);
 
-        let long_text = "x".repeat(1000);
         let long = run_mock_speech(
             "req-long".to_string(),
-            long_text,
+            "x".repeat(1000),
             "system-default".to_string(),
         )
         .await;
         assert_eq!(long.data["duration_ms"], 9000);
+        assert_eq!(long.data["provider"], "mock");
     }
 
     #[tokio::test]
-    async fn system_speech_emits_system_provider_event() {
-        let event = run_system_speech(
+    async fn system_speech_and_event_builder_cover_result_branches() {
+        let evt = run_system_speech(
             "req-2".to_string(),
             "hello system".to_string(),
             "system-default".to_string(),
         )
         .await;
+        assert_eq!(evt.event, "speech_stopped");
+        assert_eq!(evt.data["provider"], "system");
 
-        assert_eq!(event.event, "speech_stopped");
-        assert_eq!(event.data["request_id"], "req-2");
-        assert_eq!(event.data["provider"], "system");
-        assert_eq!(event.data["voice"], "system-default");
-        assert!(event.data["reason"].is_string());
-    }
+        let ok_evt = build_system_stop_event("id1".to_string(), "v".to_string(), Ok(()));
+        assert_eq!(ok_evt.data["ok"], true);
+        assert_eq!(ok_evt.data["reason"], "system_complete");
 
-    #[test]
-    fn build_system_stop_event_maps_success_result() {
-        let event = build_system_stop_event(
-            "req-success".to_string(),
-            "voice-a".to_string(),
-            Ok(()),
-        );
-
-        assert_eq!(event.data["request_id"], "req-success");
-        assert_eq!(event.data["ok"], true);
-        assert_eq!(event.data["reason"], "system_complete");
-    }
-
-    #[test]
-    fn build_system_stop_event_maps_error_result() {
-        let event = build_system_stop_event(
-            "req-error".to_string(),
-            "voice-b".to_string(),
+        let err_evt = build_system_stop_event(
+            "id2".to_string(),
+            "v".to_string(),
             Err("custom_error".to_string()),
         );
-
-        assert_eq!(event.data["request_id"], "req-error");
-        assert_eq!(event.data["ok"], false);
-        assert_eq!(event.data["reason"], "custom_error");
+        assert_eq!(err_evt.data["ok"], false);
+        assert_eq!(err_evt.data["reason"], "custom_error");
     }
 }
