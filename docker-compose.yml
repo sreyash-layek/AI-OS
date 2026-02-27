@@ -1,0 +1,15 @@
+version: "3.9"
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    container_name: ai-os-dev
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+    ports:
+      - "7777:7777"
+      - "1420:1420"
+    stdin_open: true
+    tty: true

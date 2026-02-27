@@ -29,9 +29,11 @@ It is not a new kernel. It is a cross-platform AI-native desktop layer with:
 - `crates/speech` → TTS/ASR abstraction + platform adapters
 - `docs/` → architecture, install, development, security
 
-## Quick Start (Planned)
+## Quick Start
 
-Detailed install/setup docs are in `docs/INSTALL.md` and `docs/DEVELOPMENT.md`.
+- Install via Docker dev container (recommended): see `docs/DEVELOPMENT.md`
+- Branching and PR model: see `docs/GIT_WORKFLOW.md`
+- Install/setup details: `docs/INSTALL.md`
 
 ## License
 

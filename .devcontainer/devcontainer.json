@@ -1,0 +1,15 @@
+{
+  "name": "AI-OS Dev",
+  "dockerComposeFile": ["../docker-compose.yml"],
+  "service": "dev",
+  "workspaceFolder": "/workspace",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tauri-apps.tauri-vscode",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  }
+}
