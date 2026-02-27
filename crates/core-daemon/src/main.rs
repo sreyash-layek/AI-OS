@@ -1046,6 +1046,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn scope_pause_resume_flow() {
+        let app = test_app();
+
+        let create_resp = app
+            .clone()
+            .oneshot(post_json(
+                "/v1/index/scopes",
+                json!({ "path": "C:/Users/sreya/Projects", "enabled": true }),
+            ))
+            .await
+            .unwrap();
+        let created = body_json(create_resp).await;
+        let scope_id = created["scopes"][0]["id"].as_str().unwrap();
+
+        let pause_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!("/v1/index/scopes/{scope_id}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({ "enabled": false }).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(pause_resp.status(), 200);
+        let paused = body_json(pause_resp).await;
+        assert_eq!(paused["scope"]["enabled"], false);
+
+        let resume_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!("/v1/index/scopes/{scope_id}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({ "enabled": true }).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resume_resp.status(), 200);
+        let resumed = body_json(resume_resp).await;
+        assert_eq!(resumed["scope"]["enabled"], true);
+    }
+
+    #[test]
+    fn watcher_filter_skips_temp_like_files() {
+        assert!(!should_index_file(StdPath::new("/tmp/.DS_Store")));
+        assert!(!should_index_file(StdPath::new("/tmp/Thumbs.db")));
+        assert!(!should_index_file(StdPath::new("/tmp/~$draft.docx")));
+        assert!(!should_index_file(StdPath::new("/tmp/data.tmp")));
+        assert!(should_index_file(StdPath::new("/tmp/notes.md")));
+    }
+
+    #[tokio::test]
+    async fn rename_event_requires_renamed_from() {
+        let app = test_app();
+        let resp = app
+            .oneshot(post_json(
+                "/v1/index/events",
+                json!({
+                    "scope_id": "scope-x",
+                    "path": "C:/a/b.md",
+                    "event_type": "rename"
+                }),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), 200);
+        let json = body_json(resp).await;
+        assert_eq!(json["ok"], false);
+    }
+
+    #[tokio::test]
     async fn stop_speak_returns_ok() {
         let state = test_state();
         let resp = stop_speak(State(state)).await.into_response();
