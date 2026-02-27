@@ -21,7 +21,7 @@
 - [x] Voice config API (`provider`, `auto_speak`, `default_voice`)
 - [x] Voice provider health endpoint
 - [x] UI toggle for auto-speak setting
-- [~] Native TTS adapters (Linux fallback via `spd-say`, Win/macOS pending)
+- [x] Native TTS command adapters (Linux/macOS/Windows command path)
 - [ ] Voice toggles and interruption refinements
 
 ## Sprint 3

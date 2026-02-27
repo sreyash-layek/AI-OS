@@ -116,8 +116,11 @@ Returns provider health resolution:
 
 ## Notes
 - `mock` provider simulates duration based on text length.
-- On Linux, `system` uses `spd-say` when available.
-- On other OSes, `system` is currently a placeholder until native adapters are wired.
+- `system` provider routing:
+  - Linux: `spd-say`
+  - macOS: `say`
+  - Windows: PowerShell + .NET SpeechSynthesizer
+- If requested system provider is unavailable, daemon falls back to `mock` and reports this in `/v1/config/voice/health`.
 
 ## Next
 - Add tool-call envelope format v2 with policy hints

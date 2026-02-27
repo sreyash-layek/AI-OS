@@ -221,14 +221,7 @@ async fn enqueue_speech(state: AppState, req: SpeakRequest) -> SpeakResponse {
 
     let task = tokio::spawn(async move {
         let stop_event = if provider_clone == "system" {
-            #[cfg(target_os = "linux")]
-            {
-                speech::run_linux_system_speech(rid, text, voice_clone).await
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                speech::run_system_stub(rid, voice_clone).await
-            }
+            speech::run_system_speech(rid, text, voice_clone).await
         } else {
             speech::run_mock_speech(rid, text, voice_clone).await
         };
