@@ -118,6 +118,11 @@ async fn start_watchers_for_existing_scopes(state: &AppState) {
 }
 
 async fn start_scope_watcher(state: AppState, scope: IndexScope) {
+    let interval_secs = std::env::var("AIOS_WATCH_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|v| *v >= 1 && *v <= 60)
+        .unwrap_or(5);
     let mut tasks = state.watcher_tasks.lock().await;
     if tasks.contains_key(&scope.id) {
         return;
@@ -139,7 +144,7 @@ async fn start_scope_watcher(state: AppState, scope: IndexScope) {
             .await;
 
             let Ok(current_files) = scan else {
-                sleep(Duration::from_secs(5)).await;
+                sleep(Duration::from_secs(interval_secs)).await;
                 continue;
             };
 
@@ -250,7 +255,7 @@ async fn start_scope_watcher(state: AppState, scope: IndexScope) {
             }
 
             previous = current;
-            sleep(Duration::from_secs(5)).await;
+            sleep(Duration::from_secs(interval_secs)).await;
         }
     });
 
@@ -263,6 +268,21 @@ async fn stop_scope_watcher(state: &AppState, scope_id: &str) {
     }
 }
 
+fn should_index_file(path: &StdPath) -> bool {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+
+    let lower = name.to_lowercase();
+    !(lower.starts_with(".~")
+        || lower.starts_with("~$")
+        || lower.ends_with(".tmp")
+        || lower.ends_with(".swp")
+        || lower.ends_with(".part")
+        || lower == ".ds_store"
+        || lower == "thumbs.db")
+}
+
 fn scan_scope_files(root: &str) -> Vec<(String, i64, String)> {
     let mut out = Vec::new();
     let root_path = StdPath::new(root);
@@ -270,20 +290,37 @@ fn scan_scope_files(root: &str) -> Vec<(String, i64, String)> {
         return out;
     }
 
-    fn walk(dir: &StdPath, out: &mut Vec<(String, i64, String)>) {
+    let max_files = std::env::var("AIOS_WATCH_MAX_FILES")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|v| *v >= 100)
+        .unwrap_or(20_000);
+
+    fn walk(dir: &StdPath, out: &mut Vec<(String, i64, String)>, max_files: usize) {
+        if out.len() >= max_files {
+            return;
+        }
+
         let Ok(read_dir) = std::fs::read_dir(dir) else {
             return;
         };
 
         for entry in read_dir.flatten() {
+            if out.len() >= max_files {
+                break;
+            }
+
             let path = entry.path();
             let Ok(meta) = entry.metadata() else {
                 continue;
             };
 
             if meta.is_dir() {
-                walk(&path, out);
+                walk(&path, out, max_files);
             } else if meta.is_file() {
+                if !should_index_file(&path) {
+                    continue;
+                }
                 let size = meta.len() as i64;
                 let mtime = meta
                     .modified()
@@ -296,7 +333,7 @@ fn scan_scope_files(root: &str) -> Vec<(String, i64, String)> {
         }
     }
 
-    walk(root_path, &mut out);
+    walk(root_path, &mut out, max_files);
     out
 }
 
