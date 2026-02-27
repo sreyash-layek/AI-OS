@@ -111,3 +111,27 @@ pub struct SearchResponse {
     pub query: String,
     pub results: Vec<SearchResultItem>,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IndexEventType {
+    Create,
+    Update,
+    Delete,
+    Rename,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IngestIndexEventRequest {
+    pub scope_id: String,
+    pub path: String,
+    pub event_type: IndexEventType,
+    pub size_bytes: Option<i64>,
+    pub mtime: Option<String>,
+    pub renamed_from: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct IngestIndexEventResponse {
+    pub ok: bool,
+}

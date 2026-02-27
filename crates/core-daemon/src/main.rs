@@ -22,8 +22,9 @@ use core_daemon::classify_tool_preview;
 use core_daemon::speech;
 use core_daemon::types::{
     ChatRequest, ChatResponse, CreateIndexScopeRequest, DeleteScopeResponse, EventEnvelope,
-    HealthResponse, IndexScope, IndexScopesResponse, SearchQuery, SearchResponse, SpeakRequest,
-    SpeakResponse, UpdateVoiceSettingsRequest, VoiceProviderHealth, VoiceSettings,
+    HealthResponse, IndexEventType, IndexScope, IndexScopesResponse, IngestIndexEventRequest,
+    IngestIndexEventResponse, SearchQuery, SearchResponse, SpeakRequest, SpeakResponse,
+    UpdateVoiceSettingsRequest, VoiceProviderHealth, VoiceSettings,
 };
 
 #[derive(Clone)]
@@ -88,6 +89,7 @@ fn app_router(state: AppState) -> Router {
             get(list_index_scopes).post(create_index_scope),
         )
         .route("/v1/index/scopes/{id}", delete(delete_index_scope))
+        .route("/v1/index/events", post(ingest_index_event))
         .route("/v1/search", get(search_scopes))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
@@ -242,6 +244,55 @@ async fn delete_index_scope(
         ok: true,
         deleted_id: if deleted { Some(id) } else { None },
     })
+}
+
+async fn ingest_index_event(
+    State(state): State<AppState>,
+    Json(req): Json<IngestIndexEventRequest>,
+) -> impl IntoResponse {
+    let path = req.path.trim().to_string();
+    if path.is_empty() {
+        return Json(IngestIndexEventResponse { ok: false });
+    }
+
+    let ok = match req.event_type {
+        IndexEventType::Create | IndexEventType::Update => state
+            .index_store
+            .upsert_file_metadata(&req.scope_id, &path, req.size_bytes, req.mtime.as_deref())
+            .is_ok(),
+        IndexEventType::Delete => state.index_store.delete_file_metadata(&path).is_ok(),
+        IndexEventType::Rename => {
+            if let Some(old_path) = req.renamed_from.as_deref() {
+                state
+                    .index_store
+                    .rename_file_metadata(
+                        old_path,
+                        &path,
+                        &req.scope_id,
+                        req.size_bytes,
+                        req.mtime.as_deref(),
+                    )
+                    .is_ok()
+            } else {
+                false
+            }
+        }
+    };
+
+    if ok {
+        let _ = state.events_tx.send(EventEnvelope {
+            event: "index_event_applied".to_string(),
+            at: chrono::Utc::now().to_rfc3339(),
+            source: "core-daemon",
+            data: serde_json::json!({
+                "scope_id": req.scope_id,
+                "path": path,
+                "event_type": format!("{:?}", req.event_type).to_lowercase(),
+            }),
+        });
+    }
+
+    Json(IngestIndexEventResponse { ok })
 }
 
 async fn search_scopes(
@@ -616,11 +667,29 @@ mod tests {
         let listed = body_json(list_resp).await;
         assert_eq!(listed["scopes"].as_array().unwrap().len(), 1);
 
+        let ingest_create_resp = app
+            .clone()
+            .oneshot(post_json(
+                "/v1/index/events",
+                json!({
+                    "scope_id": scope_id,
+                    "path": "C:/Users/sreya/Documents/notes/todo.md",
+                    "event_type": "create",
+                    "size_bytes": 120,
+                    "mtime": "2026-02-28T00:00:00Z"
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(ingest_create_resp.status(), 200);
+        let ingest_create_json = body_json(ingest_create_resp).await;
+        assert_eq!(ingest_create_json["ok"], true);
+
         let search_resp = app
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/v1/search?q=documents")
+                    .uri("/v1/search?q=todo")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -630,12 +699,31 @@ mod tests {
         let searched = body_json(search_resp).await;
         assert_eq!(searched["results"].as_array().unwrap().len(), 1);
 
+        let ingest_delete_resp = app
+            .clone()
+            .oneshot(post_json(
+                "/v1/index/events",
+                json!({
+                    "scope_id": created["scopes"][0]["id"].as_str().unwrap(),
+                    "path": "C:/Users/sreya/Documents/notes/todo.md",
+                    "event_type": "delete"
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(ingest_delete_resp.status(), 200);
+        let ingest_delete_json = body_json(ingest_delete_resp).await;
+        assert_eq!(ingest_delete_json["ok"], true);
+
         let delete_resp = app
             .clone()
             .oneshot(
                 Request::builder()
                     .method("DELETE")
-                    .uri(format!("/v1/index/scopes/{}", scope_id))
+                    .uri(format!(
+                        "/v1/index/scopes/{}",
+                        created["scopes"][0]["id"].as_str().unwrap()
+                    ))
                     .body(Body::empty())
                     .unwrap(),
             )
