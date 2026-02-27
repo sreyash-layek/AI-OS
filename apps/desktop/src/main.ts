@@ -9,6 +9,14 @@ const toolPreviewEl = document.getElementById("tool-preview") as HTMLPreElement;
 const eventLogEl = document.getElementById("event-log") as HTMLPreElement;
 const autoSpeakEl = document.getElementById("auto-speak") as HTMLInputElement;
 
+const scopePathEl = document.getElementById("scope-path") as HTMLInputElement;
+const addScopeBtn = document.getElementById("add-scope") as HTMLButtonElement;
+const scopesListEl = document.getElementById("scopes-list") as HTMLDivElement;
+
+const searchQueryEl = document.getElementById("search-query") as HTMLInputElement;
+const searchBtn = document.getElementById("search-btn") as HTMLButtonElement;
+const searchResultsEl = document.getElementById("search-results") as HTMLPreElement;
+
 async function sendMessage() {
   const message = promptInput.value.trim();
   if (!message) return;
@@ -33,10 +41,93 @@ async function sendMessage() {
   }
 }
 
+async function loadScopes() {
+  try {
+    const res = await fetch("/v1/index/scopes");
+    const data = await res.json();
+    const scopes = (data.scopes ?? []) as Array<{ id: string; path: string; enabled: boolean }>;
+
+    if (!scopes.length) {
+      scopesListEl.textContent = "No scopes yet.";
+      return;
+    }
+
+    scopesListEl.innerHTML = scopes
+      .map(
+        (s) =>
+          `<div class="scope-row"><span title="${s.id}">${s.path}</span><button class="ghost delete-scope" data-id="${s.id}">Remove</button></div>`
+      )
+      .join("");
+
+    scopesListEl.querySelectorAll(".delete-scope").forEach((el) => {
+      el.addEventListener("click", async () => {
+        const id = (el as HTMLButtonElement).dataset.id;
+        if (!id) return;
+        await fetch(`/v1/index/scopes/${id}`, { method: "DELETE" });
+        await loadScopes();
+      });
+    });
+  } catch {
+    scopesListEl.textContent = "Failed to load scopes.";
+  }
+}
+
+async function addScope() {
+  const path = scopePathEl.value.trim();
+  if (!path) return;
+
+  try {
+    await fetch("/v1/index/scopes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, enabled: true })
+    });
+
+    scopePathEl.value = "";
+    await loadScopes();
+  } catch (err) {
+    responseEl.textContent = `Failed to add scope: ${String(err)}`;
+  }
+}
+
+async function runSearch() {
+  const q = searchQueryEl.value.trim();
+  if (!q) {
+    searchResultsEl.textContent = "No search yet.";
+    return;
+  }
+
+  try {
+    const res = await fetch(`/v1/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    const results = data.results ?? [];
+
+    if (!results.length) {
+      searchResultsEl.textContent = "No results.";
+      return;
+    }
+
+    searchResultsEl.textContent = JSON.stringify(results, null, 2);
+  } catch (err) {
+    searchResultsEl.textContent = `Search failed: ${String(err)}`;
+  }
+}
+
 sendBtn.addEventListener("click", sendMessage);
 promptInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") sendMessage();
 });
+
+addScopeBtn.addEventListener("click", addScope);
+scopePathEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") addScope();
+});
+
+searchBtn.addEventListener("click", runSearch);
+searchQueryEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") runSearch();
+});
+
 voiceBtn.addEventListener("click", async () => {
   const text = promptInput.value.trim() || "Hello from AI-OS voice pipeline.";
 
@@ -83,7 +174,7 @@ const eventLines: string[] = [];
 
 function pushEventLine(line: string) {
   eventLines.unshift(line);
-  if (eventLines.length > 8) eventLines.pop();
+  if (eventLines.length > 12) eventLines.pop();
   eventLogEl.textContent = eventLines.join("\n");
 }
 
@@ -93,7 +184,8 @@ function connectEvents() {
   ws.onmessage = (ev) => {
     try {
       const payload = JSON.parse(String(ev.data));
-      pushEventLine(`[${payload.at}] ${payload.event} (${payload.source})`);
+      const suffix = payload?.event?.includes("index") ? " 🧠" : "";
+      pushEventLine(`[${payload.at}] ${payload.event} (${payload.source})${suffix}`);
 
       if (payload.event === "heartbeat" || payload.event === "connected") {
         statusEl.textContent = "Daemon: ok (live)";
@@ -113,6 +205,10 @@ function connectEvents() {
         speechStateEl.className = "status";
         voiceBtn.disabled = false;
         stopBtn.disabled = true;
+      }
+
+      if (payload.event === "index_scope_added" || payload.event === "index_scope_removed") {
+        loadScopes();
       }
     } catch {
       pushEventLine(String(ev.data));
@@ -136,7 +232,9 @@ async function loadVoiceConfig() {
     const health = await healthRes.json();
 
     autoSpeakEl.checked = Boolean(cfg.auto_speak);
-    pushEventLine(`[voice] configured=${health.configured_provider}, effective=${health.effective_provider}, available=${health.available}`);
+    pushEventLine(
+      `[voice] configured=${health.configured_provider}, effective=${health.effective_provider}, available=${health.available}`
+    );
   } catch {
     // ignore for now
   }
@@ -160,3 +258,4 @@ setInterval(checkHealth, 5000);
 connectEvents();
 stopBtn.disabled = true;
 loadVoiceConfig();
+loadScopes();

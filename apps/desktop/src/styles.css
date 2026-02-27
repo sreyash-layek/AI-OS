@@ -37,7 +37,7 @@ body {
   backdrop-filter: blur(14px);
 }
 h1 { margin: 0 0 .3rem 0; }
-..subtitle { margin: 0 0 .5rem; color: #aeb9dc; }
+.subtitle { margin: 0 0 .5rem; color: #aeb9dc; }
 .status {
   display: inline-block;
   font-size: .82rem;
@@ -58,6 +58,7 @@ input {
   color: #fff;
 }
 .actions { display: flex; gap: .6rem; margin: .8rem 0; }
+.actions input { flex: 1; }
 .toggle-row {
   display: flex;
   align-items: center;
@@ -99,4 +100,24 @@ pre {
   margin: 0 0 .4rem;
   font-size: .9rem;
   color: #c9d4ff;
+}
+.scopes-list {
+  display: grid;
+  gap: .45rem;
+  margin-top: .35rem;
+}
+.scope-row {
+  display: flex;
+  justify-content: space-between;
+  gap: .5rem;
+  align-items: center;
+  padding: .45rem .55rem;
+  border: 1px solid #ffffff22;
+  border-radius: 10px;
+  background: #0a1020;
+}
+.scope-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
