@@ -1,6 +1,7 @@
 const promptInput = document.getElementById("prompt") as HTMLInputElement;
 const sendBtn = document.getElementById("send") as HTMLButtonElement;
 const voiceBtn = document.getElementById("voice") as HTMLButtonElement;
+const stopBtn = document.getElementById("stop") as HTMLButtonElement;
 const responseEl = document.getElementById("response") as HTMLPreElement;
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const toolPreviewEl = document.getElementById("tool-preview") as HTMLPreElement;
@@ -34,8 +35,29 @@ sendBtn.addEventListener("click", sendMessage);
 promptInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") sendMessage();
 });
-voiceBtn.addEventListener("click", () => {
-  responseEl.textContent = "Voice pipeline starts in Sprint 2.";
+voiceBtn.addEventListener("click", async () => {
+  const text = promptInput.value.trim() || "Hello from AI-OS voice pipeline.";
+
+  try {
+    const res = await fetch("/v1/speak", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice: "system-default" })
+    });
+    const data = await res.json();
+    responseEl.textContent = `Speak queued (mode=${data.mode}, request_id=${data.request_id})`;
+  } catch (err) {
+    responseEl.textContent = `Speak request failed: ${String(err)}`;
+  }
+});
+
+stopBtn.addEventListener("click", async () => {
+  try {
+    await fetch("/v1/speak/stop", { method: "POST" });
+    responseEl.textContent = "Stop requested.";
+  } catch (err) {
+    responseEl.textContent = `Stop request failed: ${String(err)}`;
+  }
 });
 
 async function checkHealth() {

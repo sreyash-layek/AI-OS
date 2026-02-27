@@ -5,17 +5,21 @@ use axum::{
     Json, Router,
 };
 use std::{net::SocketAddr, sync::Arc};
-use tokio::time::{sleep, Duration};
+use tokio::{sync::broadcast, time::{sleep, Duration}};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
+use uuid::Uuid;
+
+mod types;
+use types::{
+    ChatRequest, ChatResponse, EventEnvelope, HealthResponse, SpeakRequest, SpeakResponse, ToolPreview,
+};
 
 #[derive(Clone)]
 struct AppState {
     name: Arc<String>,
+    events_tx: broadcast::Sender<EventEnvelope>,
 }
-
-mod types;
-use types::{ChatRequest, ChatResponse, EventEnvelope, HealthResponse, ToolPreview};
 
 #[tokio::main]
 async fn main() {
@@ -23,14 +27,19 @@ async fn main() {
         .with_env_filter("info")
         .init();
 
+    let (events_tx, _) = broadcast::channel::<EventEnvelope>(128);
+
     let state = AppState {
         name: Arc::new("AI-OS Core Daemon".to_string()),
+        events_tx,
     };
 
     let app = Router::new()
         .route("/health", get(health))
         .route("/v1/chat", post(chat))
         .route("/v1/events", get(events))
+        .route("/v1/speak", post(speak))
+        .route("/v1/speak/stop", post(stop_speak))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -81,7 +90,7 @@ async fn chat(Json(req): Json<ChatRequest>) -> impl IntoResponse {
 
     Json(ChatResponse {
         reply: format!(
-            "Sprint 1 scaffold active. Received: '{}'. Tool execution will be added next.",
+            "Sprint scaffold active. Received: '{}'. Tool execution will be added next.",
             req.message
         ),
         mode: "mock",
@@ -89,12 +98,57 @@ async fn chat(Json(req): Json<ChatRequest>) -> impl IntoResponse {
     })
 }
 
-async fn events(ws: WebSocketUpgrade) -> impl IntoResponse {
+async fn speak(State(state): State<AppState>, Json(req): Json<SpeakRequest>) -> impl IntoResponse {
+    let request_id = Uuid::new_v4().to_string();
+    let tx = state.events_tx.clone();
+    let voice = req.voice.clone().unwrap_or_else(|| "system-default".to_string());
+
+    let started = EventEnvelope {
+        event: "speech_started".to_string(),
+        at: chrono::Utc::now().to_rfc3339(),
+        source: "core-daemon",
+        data: serde_json::json!({ "request_id": request_id, "voice": voice, "text": req.text }),
+    };
+    let _ = tx.send(started);
+
+    let rid = request_id.clone();
+    tokio::spawn(async move {
+        sleep(Duration::from_secs(2)).await;
+        let _ = tx.send(EventEnvelope {
+            event: "speech_stopped".to_string(),
+            at: chrono::Utc::now().to_rfc3339(),
+            source: "core-daemon",
+            data: serde_json::json!({ "request_id": rid, "reason": "mock_complete" }),
+        });
+    });
+
+    Json(SpeakResponse {
+        ok: true,
+        request_id,
+        mode: "mock",
+    })
+}
+
+async fn stop_speak(State(state): State<AppState>) -> impl IntoResponse {
+    let _ = state.events_tx.send(EventEnvelope {
+        event: "speech_stopped".to_string(),
+        at: chrono::Utc::now().to_rfc3339(),
+        source: "core-daemon",
+        data: serde_json::json!({ "reason": "user_stop" }),
+    });
+
+    Json(serde_json::json!({ "ok": true }))
+}
+
+async fn events(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(|mut socket| async move {
+        let mut rx = state.events_tx.subscribe();
+
         let connected = EventEnvelope {
             event: "connected".to_string(),
             at: chrono::Utc::now().to_rfc3339(),
             source: "core-daemon",
+            data: serde_json::json!({}),
         };
 
         let _ = socket
@@ -106,24 +160,45 @@ async fn events(ws: WebSocketUpgrade) -> impl IntoResponse {
             .await;
 
         loop {
-            sleep(Duration::from_secs(15)).await;
+            tokio::select! {
+                _ = sleep(Duration::from_secs(15)) => {
+                    let heartbeat = EventEnvelope {
+                        event: "heartbeat".to_string(),
+                        at: chrono::Utc::now().to_rfc3339(),
+                        source: "core-daemon",
+                        data: serde_json::json!({}),
+                    };
 
-            let heartbeat = EventEnvelope {
-                event: "heartbeat".to_string(),
-                at: chrono::Utc::now().to_rfc3339(),
-                source: "core-daemon",
-            };
-
-            if socket
-                .send(axum::extract::ws::Message::Text(
-                    serde_json::to_string(&heartbeat)
-                        .unwrap_or_else(|_| "{\"event\":\"heartbeat\"}".to_string())
-                        .into(),
-                ))
-                .await
-                .is_err()
-            {
-                break;
+                    if socket
+                        .send(axum::extract::ws::Message::Text(
+                            serde_json::to_string(&heartbeat)
+                                .unwrap_or_else(|_| "{\"event\":\"heartbeat\"}".to_string())
+                                .into(),
+                        ))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                evt = rx.recv() => {
+                    match evt {
+                        Ok(event) => {
+                            if socket
+                                .send(axum::extract::ws::Message::Text(
+                                    serde_json::to_string(&event)
+                                        .unwrap_or_else(|_| "{\"event\":\"internal_error\"}".to_string())
+                                        .into(),
+                                ))
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
             }
         }
     })

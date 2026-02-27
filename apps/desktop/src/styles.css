@@ -72,6 +72,10 @@ button.ghost {
   color: #d9e1ff;
   border: 1px solid #ffffff33;
 }
+button#stop {
+  color: #ffcad4;
+  border-color: #ff6f8c66;
+}
 pre {
   margin: 0;
   background: #060a14;

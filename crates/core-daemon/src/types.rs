@@ -26,9 +26,23 @@ pub struct HealthResponse {
     pub status: &'static str,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct EventEnvelope {
     pub event: String,
     pub at: String,
     pub source: &'static str,
+    pub data: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SpeakRequest {
+    pub text: String,
+    pub voice: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SpeakResponse {
+    pub ok: bool,
+    pub request_id: String,
+    pub mode: &'static str,
 }

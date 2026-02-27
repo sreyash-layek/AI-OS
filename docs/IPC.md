@@ -51,7 +51,38 @@ Sends lightweight lifecycle events as JSON:
 }
 ```
 
+### POST /v1/speak
+Request:
+
+```json
+{
+  "text": "Hello from AI-OS",
+  "voice": "system-default"
+}
+```
+
+Response:
+
+```json
+{
+  "ok": true,
+  "request_id": "<uuid>",
+  "mode": "mock"
+}
+```
+
+### POST /v1/speak/stop
+Response:
+
+```json
+{ "ok": true }
+```
+
+Speech lifecycle events are emitted over `/v1/events`:
+- `speech_started`
+- `speech_stopped`
+
 ## Next
-- Add tool-call envelope format
+- Add tool-call envelope format v2 with policy hints
 - Add permission prompt event schema
-- Move to structured JSON event payloads
+- Add native TTS provider wiring (non-mock)

@@ -46,6 +46,13 @@ cd apps/desktop
 npm run tauri:dev
 ```
 
+Sprint 2 speech endpoint quick test:
+```bash
+curl -X POST http://127.0.0.1:7777/v1/speak \
+  -H "content-type: application/json" \
+  -d '{"text":"hello","voice":"system-default"}'
+```
+
 ## Engineering Guidelines (latest)
 - Keep features behind documented contracts
 - Use typed tool schemas for all AI actions
