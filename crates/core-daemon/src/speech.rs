@@ -87,16 +87,32 @@ fn status_ok(status: std::io::Result<ExitStatus>) -> bool {
 }
 
 fn command_exists_windows(cmd: &str) -> bool {
-    status_ok(Command::new("where").arg(cmd).status())
+    command_exists_windows_with(cmd, |program| Command::new("where").arg(program).status())
+}
+
+fn command_exists_windows_with<F>(cmd: &str, exec: F) -> bool
+where
+    F: FnOnce(&str) -> std::io::Result<ExitStatus>,
+{
+    let _ = cmd;
+    status_ok(exec(cmd))
 }
 
 fn command_exists_shell(cmd: &str) -> bool {
-    status_ok(
+    command_exists_shell_with(cmd, |program| {
         Command::new("sh")
             .arg("-lc")
-            .arg(format!("command -v {} >/dev/null 2>&1", cmd))
-            .status(),
-    )
+            .arg(format!("command -v {} >/dev/null 2>&1", program))
+            .status()
+    })
+}
+
+fn command_exists_shell_with<F>(cmd: &str, exec: F) -> bool
+where
+    F: FnOnce(&str) -> std::io::Result<ExitStatus>,
+{
+    let _ = cmd;
+    status_ok(exec(cmd))
 }
 
 pub async fn run_mock_speech(request_id: String, text: String, voice: String) -> EventEnvelope {
@@ -236,6 +252,12 @@ mod tests {
         let yes = detect_system_provider_for_os("linux");
         assert!(yes.0 == "system" || yes.0 == "mock");
 
+        let mac = detect_system_provider_for_os("macos");
+        assert!(mac.0 == "system" || mac.0 == "mock");
+
+        let win = detect_system_provider_for_os("windows");
+        assert!(win.0 == "system" || win.0 == "mock");
+
         let no = detect_system_provider_for_os("haiku");
         assert_eq!(no.0, "mock");
     }
@@ -266,8 +288,32 @@ mod tests {
     fn command_exists_functions_are_callable() {
         let _ = command_exists_for_os("windows", "definitely-not-real");
         let _ = command_exists_for_os("linux", "sh");
+        let _ = command_exists_for_os("macos", "sh");
         let _ = command_exists_windows("definitely-not-real");
         let _ = command_exists_shell("sh");
+    }
+
+    #[test]
+    fn command_exists_with_helpers_cover_all_status_paths() {
+        assert!(command_exists_windows_with("powershell", |_cmd| {
+            Command::new("sh").arg("-lc").arg("exit 0").status()
+        }));
+        assert!(!command_exists_windows_with("powershell", |_cmd| {
+            Command::new("sh").arg("-lc").arg("exit 5").status()
+        }));
+        assert!(!command_exists_windows_with("powershell", |_cmd| {
+            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "missing"))
+        }));
+
+        assert!(command_exists_shell_with("sh", |_cmd| {
+            Command::new("sh").arg("-lc").arg("exit 0").status()
+        }));
+        assert!(!command_exists_shell_with("sh", |_cmd| {
+            Command::new("sh").arg("-lc").arg("exit 7").status()
+        }));
+        assert!(!command_exists_shell_with("sh", |_cmd| {
+            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "missing"))
+        }));
     }
 
     #[test]
