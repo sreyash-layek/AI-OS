@@ -8,6 +8,25 @@ body {
   background: radial-gradient(circle at 20% -20%, #3f67ff55 0%, #0a0f1b 40%, #06070c 100%);
   color: #e9eeff;
 }
+.toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  opacity: 0;
+  transform: translateY(-10px);
+  transition: opacity .2s ease, transform .2s ease;
+  background: #111b31;
+  border: 1px solid #6f9cff66;
+  color: #dce7ff;
+  border-radius: 10px;
+  padding: .5rem .7rem;
+  font-size: .82rem;
+  z-index: 20;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
 .shell {
   min-height: 100vh;
   display: grid;
@@ -75,6 +94,10 @@ h1 { margin: 0; letter-spacing: .2px; }
 }
 .orb-btn.live .orb {
   box-shadow: 0 0 80px #6bffbe99, inset 0 0 36px #ffffff50;
+}
+.orb-btn.listening .orb {
+  box-shadow: 0 0 92px #62a6ffb0, inset 0 0 36px #ffffff50;
+  transform: scale(1.12);
 }
 .orb-caption { font-size: .86rem; color: #b8c6ef; }
 @keyframes pulse {

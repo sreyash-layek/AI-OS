@@ -8,6 +8,7 @@ const speechStateEl = document.getElementById("speech-state") as HTMLDivElement;
 const conversationModeEl = document.getElementById("conversation-mode") as HTMLSpanElement;
 const conversationLogEl = document.getElementById("conversation-log") as HTMLDivElement;
 const micOrbBtn = document.getElementById("mic-orb") as HTMLButtonElement;
+const toastEl = document.getElementById("toast") as HTMLDivElement;
 const toolPreviewEl = document.getElementById("tool-preview") as HTMLPreElement;
 const eventLogEl = document.getElementById("event-log") as HTMLPreElement;
 const autoSpeakEl = document.getElementById("auto-speak") as HTMLInputElement;
@@ -25,6 +26,14 @@ const batchCountsEl = document.getElementById("batch-counts") as HTMLDivElement;
 
 function setConversationMode(mode: "idle" | "listening" | "thinking" | "speaking") {
   conversationModeEl.textContent = `Mode: ${mode}`;
+}
+
+let toastTimer: number | undefined;
+function showToast(message: string) {
+  toastEl.textContent = message;
+  toastEl.classList.add("show");
+  if (toastTimer) window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => toastEl.classList.remove("show"), 2200);
 }
 
 function addConversationBubble(role: "user" | "assistant", text: string) {
@@ -129,7 +138,7 @@ async function addScope() {
     scopePathEl.value = "";
     await loadScopes();
   } catch (err) {
-    responseEl.textContent = `Failed to add scope: ${String(err)}`;
+    showToast(`Failed to add scope: ${String(err)}`);
   }
 }
 
@@ -152,7 +161,7 @@ async function runSearch() {
 
     searchResultsEl.textContent = JSON.stringify(results, null, 2);
   } catch (err) {
-    searchResultsEl.textContent = `Search failed: ${String(err)}`;
+    showToast(`Search failed: ${String(err)}`);
   }
 }
 
@@ -171,15 +180,24 @@ searchQueryEl.addEventListener("keydown", (e) => {
   if (e.key === "Enter") runSearch();
 });
 
-micOrbBtn?.addEventListener("click", async () => {
-  // Voice-first behavior: if already speaking, stop. Otherwise speak prompt (or default line).
+let orbPressed = false;
+
+micOrbBtn?.addEventListener("pointerdown", () => {
+  orbPressed = true;
+  micOrbBtn.classList.add("listening");
+  setConversationMode("listening");
+});
+
+micOrbBtn?.addEventListener("pointerup", async () => {
+  if (!orbPressed) return;
+  orbPressed = false;
+  micOrbBtn.classList.remove("listening");
+
   if (!stopBtn.disabled) {
     await fetch("/v1/speak/stop", { method: "POST" });
     setConversationMode("idle");
     return;
   }
-
-  setConversationMode("listening");
 
   if (promptInput.value.trim()) {
     await sendMessage();
@@ -195,8 +213,15 @@ micOrbBtn?.addEventListener("click", async () => {
       body: JSON.stringify({ text, voice: "system-default" })
     });
   } catch {
+    showToast("Voice request failed");
     setConversationMode("idle");
   }
+});
+
+micOrbBtn?.addEventListener("pointerleave", () => {
+  orbPressed = false;
+  micOrbBtn.classList.remove("listening");
+  if (stopBtn.disabled) setConversationMode("idle");
 });
 
 voiceBtn.addEventListener("click", async () => {
@@ -215,7 +240,7 @@ voiceBtn.addEventListener("click", async () => {
     }
     responseEl.textContent = `Speak queued (mode=${data.mode}, request_id=${data.request_id})`;
   } catch (err) {
-    responseEl.textContent = `Speak request failed: ${String(err)}`;
+    showToast(`Speak request failed: ${String(err)}`);
   }
 });
 
@@ -224,7 +249,7 @@ stopBtn.addEventListener("click", async () => {
     await fetch("/v1/speak/stop", { method: "POST" });
     responseEl.textContent = "Stop requested.";
   } catch (err) {
-    responseEl.textContent = `Stop request failed: ${String(err)}`;
+    showToast(`Stop request failed: ${String(err)}`);
   }
 });
 
