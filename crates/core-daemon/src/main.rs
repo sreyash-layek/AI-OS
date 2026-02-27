@@ -382,8 +382,10 @@ mod tests {
     #[tokio::test]
     async fn stop_speak_returns_ok() {
         let state = test_state();
-        let value = stop_speak(State(state)).await;
-        let json = serde_json::to_value(value.0).expect("json");
+        let resp = stop_speak(State(state)).await.into_response();
+        assert_eq!(resp.status(), 200);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["ok"], true);
     }
 }
