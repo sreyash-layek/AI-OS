@@ -16,6 +16,7 @@ const scopesListEl = document.getElementById("scopes-list") as HTMLDivElement;
 const searchQueryEl = document.getElementById("search-query") as HTMLInputElement;
 const searchBtn = document.getElementById("search-btn") as HTMLButtonElement;
 const searchResultsEl = document.getElementById("search-results") as HTMLPreElement;
+const batchStatsEl = document.getElementById("batch-stats") as HTMLPreElement;
 
 async function sendMessage() {
   const message = promptInput.value.trim();
@@ -209,6 +210,26 @@ function connectEvents() {
 
       if (payload.event === "index_scope_added" || payload.event === "index_scope_removed") {
         loadScopes();
+      }
+
+      if (payload.event === "index_batch_applied") {
+        const counts = payload?.data?.counts ?? {};
+        const samplePaths = payload?.data?.sample_paths ?? [];
+        const scopeId = payload?.data?.scope_id ?? "unknown";
+        batchStatsEl.textContent = JSON.stringify(
+          {
+            scope_id: scopeId,
+            counts: {
+              create: counts.create ?? 0,
+              update: counts.update ?? 0,
+              delete: counts.delete ?? 0,
+              rename: counts.rename ?? 0
+            },
+            sample_paths: samplePaths
+          },
+          null,
+          2
+        );
       }
     } catch {
       pushEventLine(String(ev.data));
