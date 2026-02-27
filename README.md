@@ -22,7 +22,7 @@ It is not a new kernel. It is a cross-platform AI-native desktop layer with:
 
 ## Planned Architecture
 
-- `apps/desktop` → Tauri desktop app (launcher/chat/voice UI)
+- `apps/desktop` → Tauri + Vite desktop app (launcher/chat/voice UI)
 - `crates/core-daemon` → Rust daemon (IPC, tools, policy, audit)
 - `crates/tool-registry` → typed tool schemas + risk tiers
 - `crates/indexer` → file watchers + keyword/semantic indexing

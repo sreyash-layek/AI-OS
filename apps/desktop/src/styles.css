@@ -37,7 +37,18 @@ body {
   backdrop-filter: blur(14px);
 }
 h1 { margin: 0 0 .3rem 0; }
-.subtitle { margin: 0 0 1rem; color: #aeb9dc; }
+..subtitle { margin: 0 0 .5rem; color: #aeb9dc; }
+.status {
+  display: inline-block;
+  font-size: .82rem;
+  border-radius: 999px;
+  padding: .2rem .55rem;
+  margin-bottom: .9rem;
+  border: 1px solid #ffffff24;
+}
+.status.checking { color: #d8e0ff; }
+.status.ok { color: #8affd7; border-color: #2ff0b37d; }
+.status.err { color: #ffafbf; border-color: #ff4f7e80; }
 input {
   width: 100%;
   padding: .8rem;
@@ -68,4 +79,12 @@ pre {
   border-radius: 12px;
   padding: .8rem;
   white-space: pre-wrap;
+}
+.preview {
+  margin-top: .8rem;
+}
+.preview h3 {
+  margin: 0 0 .4rem;
+  font-size: .9rem;
+  color: #c9d4ff;
 }

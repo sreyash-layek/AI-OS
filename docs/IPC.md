@@ -23,16 +23,35 @@ Request:
 }
 ```
 
-Response (Sprint 1 mock):
+Response (Sprint 1 mock + tool preview envelope):
 
 ```json
 {
   "reply": "Sprint 1 scaffold active...",
-  "mode": "mock"
+  "mode": "mock",
+  "tool_preview": {
+    "name": "open_app_or_file",
+    "risk_tier": 1,
+    "requires_confirmation": false,
+    "note": "Low-risk open action..."
+  }
+}
+```
+
+## WebSocket events (Sprint 1)
+
+### GET /v1/events (WebSocket)
+Sends lightweight lifecycle events as JSON:
+
+```json
+{
+  "event": "heartbeat",
+  "at": "2026-02-27T06:23:40.120Z",
+  "source": "core-daemon"
 }
 ```
 
 ## Next
-- Add event stream for action previews
 - Add tool-call envelope format
 - Add permission prompt event schema
+- Move to structured JSON event payloads

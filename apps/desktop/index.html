@@ -14,12 +14,21 @@
       <section class="panel">
         <h1>AI-OS</h1>
         <p class="subtitle">Local-first AI launcher — Sprint 1 shell</p>
+        <div id="status" class="status checking">Checking daemon...</div>
         <input id="prompt" placeholder="Try: Open downloads and summarize latest PDF" />
         <div class="actions">
           <button id="send">Send</button>
           <button id="voice" class="ghost">Voice</button>
         </div>
         <pre id="response">Ready.</pre>
+        <section class="preview">
+          <h3>Action Preview</h3>
+          <pre id="tool-preview">Waiting for tool preview...</pre>
+        </section>
+        <section class="preview">
+          <h3>Live Events</h3>
+          <pre id="event-log">Waiting for events...</pre>
+        </section>
       </section>
     </main>
     <script type="module" src="./src/main.ts"></script>
