@@ -300,8 +300,8 @@ mod tests {
         let result = run_system_command("hello", "ignored");
         let ok = result.is_ok();
         let expected_err = matches!(
-            result.as_deref(),
-            Err("linux_spd_say_missing") | Err("linux_spd_say_failed")
+            result.as_ref().err().map(|e| e.as_str()),
+            Some("linux_spd_say_missing") | Some("linux_spd_say_failed")
         );
         assert!(ok || expected_err);
     }
