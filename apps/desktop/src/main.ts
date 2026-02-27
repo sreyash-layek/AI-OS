@@ -10,7 +10,7 @@ async function sendMessage() {
   responseEl.textContent = "Thinking...";
 
   try {
-    const res = await fetch("http://127.0.0.1:7777/v1/chat", {
+    const res = await fetch("/v1/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message })

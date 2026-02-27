@@ -43,7 +43,7 @@ async fn main() {
         .layer(CorsLayer::permissive())
         .with_state(state);
 
-    let addr: SocketAddr = "127.0.0.1:7777".parse().expect("valid socket address");
+    let addr: SocketAddr = "0.0.0.0:7777".parse().expect("valid socket address");
     info!("core-daemon listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr)
