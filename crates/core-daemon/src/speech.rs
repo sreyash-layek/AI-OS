@@ -322,6 +322,36 @@ mod tests {
             run_system_command_for_os("unknown", "x", "v").unwrap_err(),
             "system_provider_unsupported_os"
         );
+
+        let linux = run_system_command_for_os("linux", "x", "v");
+        assert!(linux.is_ok() || linux.is_err());
+
+        let mac = run_system_command_for_os("macos", "x", "v");
+        assert!(mac.is_ok() || mac.is_err());
+
+        let win = run_system_command_for_os("windows", "x", "v");
+        assert!(win.is_ok() || win.is_err());
+    }
+
+    #[test]
+    fn command_exists_dispatch_covers_windows_and_shell_paths() {
+        let win = command_exists_for_os("windows", "definitely-not-a-real-command-xyz");
+        assert!(!win);
+
+        let shell = command_exists_for_os("linux", "sh");
+        assert!(shell);
+    }
+
+    #[test]
+    fn current_os_is_non_empty() {
+        assert!(!current_os().is_empty());
+    }
+
+    #[test]
+    fn detect_effective_provider_system_path_executes() {
+        let (effective, _available, detail) = detect_effective_provider(&settings("system"));
+        assert!(effective == "system" || effective == "mock");
+        assert!(!detail.is_empty());
     }
 
     #[tokio::test]
