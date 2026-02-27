@@ -83,9 +83,24 @@ async function loadScopes() {
     scopesListEl.innerHTML = scopes
       .map(
         (s) =>
-          `<div class="scope-row"><span title="${s.id}">${s.path}</span><button class="ghost delete-scope" data-id="${s.id}">Remove</button></div>`
+          `<div class="scope-row"><span title="${s.id}">${s.path} ${s.enabled ? "(watching)" : "(paused)"}</span><div class="scope-actions"><button class="ghost toggle-scope" data-id="${s.id}" data-enabled="${s.enabled}">${s.enabled ? "Pause" : "Resume"}</button><button class="ghost delete-scope" data-id="${s.id}">Remove</button></div></div>`
       )
       .join("");
+
+    scopesListEl.querySelectorAll(".toggle-scope").forEach((el) => {
+      el.addEventListener("click", async () => {
+        const btn = el as HTMLButtonElement;
+        const id = btn.dataset.id;
+        const enabled = btn.dataset.enabled === "true";
+        if (!id) return;
+        await fetch(`/v1/index/scopes/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: !enabled })
+        });
+        await loadScopes();
+      });
+    });
 
     scopesListEl.querySelectorAll(".delete-scope").forEach((el) => {
       el.addEventListener("click", async () => {
@@ -287,7 +302,11 @@ function connectEvents() {
         setConversationMode("idle");
       }
 
-      if (payload.event === "index_scope_added" || payload.event === "index_scope_removed") {
+      if (
+        payload.event === "index_scope_added" ||
+        payload.event === "index_scope_removed" ||
+        payload.event === "index_scope_updated"
+      ) {
         loadScopes();
       }
 

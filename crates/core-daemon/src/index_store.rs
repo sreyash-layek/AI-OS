@@ -84,6 +84,50 @@ impl IndexStore {
         Ok(changed > 0)
     }
 
+    pub fn update_scope_enabled(
+        &self,
+        id: &str,
+        enabled: bool,
+    ) -> Result<Option<IndexScope>, String> {
+        let conn = self.connect()?;
+        conn.execute(
+            "UPDATE index_scopes SET enabled = ?2 WHERE id = ?1",
+            params![id, if enabled { 1 } else { 0 }],
+        )
+        .map_err(|e| format!("db_update_scope_failed: {e}"))?;
+
+        let mut stmt = conn
+            .prepare("SELECT id, path, enabled, created_at FROM index_scopes WHERE id = ?1")
+            .map_err(|e| format!("db_prepare_get_scope_failed: {e}"))?;
+
+        let mut rows = stmt
+            .query(params![id])
+            .map_err(|e| format!("db_query_get_scope_failed: {e}"))?;
+
+        if let Some(row) = rows
+            .next()
+            .map_err(|e| format!("db_next_get_scope_failed: {e}"))?
+        {
+            Ok(Some(IndexScope {
+                id: row
+                    .get(0)
+                    .map_err(|e| format!("db_get_scope_id_failed: {e}"))?,
+                path: row
+                    .get(1)
+                    .map_err(|e| format!("db_get_scope_path_failed: {e}"))?,
+                enabled: row
+                    .get::<_, i64>(2)
+                    .map_err(|e| format!("db_get_scope_enabled_failed: {e}"))?
+                    != 0,
+                created_at: row
+                    .get(3)
+                    .map_err(|e| format!("db_get_scope_created_failed: {e}"))?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn upsert_file_metadata(
         &self,
         scope_id: &str,

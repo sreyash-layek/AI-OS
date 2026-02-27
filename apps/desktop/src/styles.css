@@ -166,6 +166,7 @@ button#stop {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.scope-actions { display: flex; gap: .35rem; }
 .batch-counts {
   display: flex;
   gap: .45rem;

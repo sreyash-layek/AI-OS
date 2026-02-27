@@ -95,6 +95,17 @@ pub struct DeleteScopeResponse {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct UpdateIndexScopeRequest {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UpdateIndexScopeResponse {
+    pub ok: bool,
+    pub scope: Option<IndexScope>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct SearchQuery {
     pub q: String,
 }

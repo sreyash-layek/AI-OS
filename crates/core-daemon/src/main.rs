@@ -3,7 +3,7 @@ mod index_store;
 use axum::{
     extract::{Path, Query, State, WebSocketUpgrade},
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Json, Router,
 };
 use std::{
@@ -30,7 +30,8 @@ use core_daemon::types::{
     ChatRequest, ChatResponse, CreateIndexScopeRequest, DeleteScopeResponse, EventEnvelope,
     HealthResponse, IndexEventType, IndexScope, IndexScopesResponse, IngestIndexEventRequest,
     IngestIndexEventResponse, SearchQuery, SearchResponse, SpeakRequest, SpeakResponse,
-    UpdateVoiceSettingsRequest, VoiceProviderHealth, VoiceSettings,
+    UpdateIndexScopeRequest, UpdateIndexScopeResponse, UpdateVoiceSettingsRequest,
+    VoiceProviderHealth, VoiceSettings,
 };
 
 #[derive(Clone)]
@@ -98,7 +99,10 @@ fn app_router(state: AppState) -> Router {
             "/v1/index/scopes",
             get(list_index_scopes).post(create_index_scope),
         )
-        .route("/v1/index/scopes/{id}", delete(delete_index_scope))
+        .route(
+            "/v1/index/scopes/{id}",
+            delete(delete_index_scope).patch(update_index_scope),
+        )
         .route("/v1/index/events", post(ingest_index_event))
         .route("/v1/search", get(search_scopes))
         .layer(TraceLayer::new_for_http())
@@ -449,6 +453,38 @@ async fn delete_index_scope(
         ok: true,
         deleted_id: if deleted { Some(id) } else { None },
     })
+}
+
+async fn update_index_scope(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateIndexScopeRequest>,
+) -> impl IntoResponse {
+    let scope = state
+        .index_store
+        .update_scope_enabled(&id, req.enabled)
+        .unwrap_or(None);
+
+    if let Some(scope) = &scope {
+        if scope.enabled {
+            start_scope_watcher(state.clone(), scope.clone()).await;
+        } else {
+            stop_scope_watcher(&state, &scope.id).await;
+        }
+
+        let _ = state.events_tx.send(EventEnvelope {
+            event: "index_scope_updated".to_string(),
+            at: chrono::Utc::now().to_rfc3339(),
+            source: "core-daemon",
+            data: serde_json::json!({
+                "id": scope.id,
+                "enabled": scope.enabled,
+                "path": scope.path
+            }),
+        });
+    }
+
+    Json(UpdateIndexScopeResponse { ok: true, scope })
 }
 
 async fn ingest_index_event(
