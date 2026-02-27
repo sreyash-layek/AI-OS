@@ -25,3 +25,10 @@ pub struct HealthResponse {
     pub service: String,
     pub status: &'static str,
 }
+
+#[derive(Debug, Serialize)]
+pub struct EventEnvelope {
+    pub event: String,
+    pub at: String,
+    pub source: &'static str,
+}

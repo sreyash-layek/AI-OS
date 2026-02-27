@@ -4,6 +4,7 @@ const voiceBtn = document.getElementById("voice") as HTMLButtonElement;
 const responseEl = document.getElementById("response") as HTMLPreElement;
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const toolPreviewEl = document.getElementById("tool-preview") as HTMLPreElement;
+const eventLogEl = document.getElementById("event-log") as HTMLPreElement;
 
 async function sendMessage() {
   const message = promptInput.value.trim();
@@ -50,15 +51,33 @@ async function checkHealth() {
   }
 }
 
+const eventLines: string[] = [];
+
+function pushEventLine(line: string) {
+  eventLines.unshift(line);
+  if (eventLines.length > 8) eventLines.pop();
+  eventLogEl.textContent = eventLines.join("\n");
+}
+
 function connectEvents() {
   const ws = new WebSocket("ws://localhost:7777/v1/events");
+
   ws.onmessage = (ev) => {
-    if (String(ev.data).includes("heartbeat")) {
-      statusEl.textContent = "Daemon: ok (live)";
-      statusEl.className = "status ok";
+    try {
+      const payload = JSON.parse(String(ev.data));
+      pushEventLine(`[${payload.at}] ${payload.event} (${payload.source})`);
+
+      if (payload.event === "heartbeat" || payload.event === "connected") {
+        statusEl.textContent = "Daemon: ok (live)";
+        statusEl.className = "status ok";
+      }
+    } catch {
+      pushEventLine(String(ev.data));
     }
   };
+
   ws.onclose = () => {
+    pushEventLine("[reconnect] websocket closed, retrying...");
     setTimeout(connectEvents, 2000);
   };
 }

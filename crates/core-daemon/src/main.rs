@@ -15,7 +15,7 @@ struct AppState {
 }
 
 mod types;
-use types::{ChatRequest, ChatResponse, HealthResponse, ToolPreview};
+use types::{ChatRequest, ChatResponse, EventEnvelope, HealthResponse, ToolPreview};
 
 #[tokio::main]
 async fn main() {
@@ -91,16 +91,35 @@ async fn chat(Json(req): Json<ChatRequest>) -> impl IntoResponse {
 
 async fn events(ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(|mut socket| async move {
+        let connected = EventEnvelope {
+            event: "connected".to_string(),
+            at: chrono::Utc::now().to_rfc3339(),
+            source: "core-daemon",
+        };
+
         let _ = socket
             .send(axum::extract::ws::Message::Text(
-                "event:connected".to_string().into(),
+                serde_json::to_string(&connected)
+                    .unwrap_or_else(|_| "{\"event\":\"connected\"}".to_string())
+                    .into(),
             ))
             .await;
 
         loop {
             sleep(Duration::from_secs(15)).await;
+
+            let heartbeat = EventEnvelope {
+                event: "heartbeat".to_string(),
+                at: chrono::Utc::now().to_rfc3339(),
+                source: "core-daemon",
+            };
+
             if socket
-                .send(axum::extract::ws::Message::Text("event:heartbeat".to_string().into()))
+                .send(axum::extract::ws::Message::Text(
+                    serde_json::to_string(&heartbeat)
+                        .unwrap_or_else(|_| "{\"event\":\"heartbeat\"}".to_string())
+                        .into(),
+                ))
                 .await
                 .is_err()
             {

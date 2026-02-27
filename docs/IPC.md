@@ -41,9 +41,15 @@ Response (Sprint 1 mock + tool preview envelope):
 ## WebSocket events (Sprint 1)
 
 ### GET /v1/events (WebSocket)
-Sends lightweight lifecycle events:
-- `event:connected`
-- `event:heartbeat` (every 15s)
+Sends lightweight lifecycle events as JSON:
+
+```json
+{
+  "event": "heartbeat",
+  "at": "2026-02-27T06:23:40.120Z",
+  "source": "core-daemon"
+}
+```
 
 ## Next
 - Add tool-call envelope format

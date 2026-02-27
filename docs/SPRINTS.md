@@ -10,6 +10,8 @@
 - [x] WebSocket event stub (daemon -> UI)
 - [x] Tool preview envelope stub (`/v1/chat`)
 - [x] UI action preview panel
+- [x] Structured JSON websocket events
+- [x] UI live event timeline panel
 - [x] Tauri wrapper bootstrap
 
 ## Sprint 2 (next)
