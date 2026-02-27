@@ -5,7 +5,8 @@
 - [x] Basic IPC endpoints
 - [x] Desktop app scaffold folder
 - [x] IPC documentation
-- [ ] Tauri app bootstrapped
+- [x] Vite desktop shell UI (futuristic launcher prototype)
+- [ ] Tauri wrapper bootstrap
 
 ## Sprint 2 (next)
 - TTS adapters (macOS/Windows)
