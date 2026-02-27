@@ -6,7 +6,7 @@
 - [x] Desktop app scaffold folder
 - [x] IPC documentation
 - [x] Vite desktop shell UI (futuristic launcher prototype)
-- [ ] Tauri wrapper bootstrap
+- [x] Tauri wrapper bootstrap
 
 ## Sprint 2 (next)
 - TTS adapters (macOS/Windows)

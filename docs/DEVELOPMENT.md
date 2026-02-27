@@ -33,6 +33,19 @@ cargo check -p core-daemon
 cargo run -p core-daemon
 ```
 
+Desktop shell (web preview):
+```bash
+cd apps/desktop
+npm install
+npm run dev -- --host 0.0.0.0 --port 1420
+```
+
+Tauri desktop wrapper (next validation step):
+```bash
+cd apps/desktop
+npm run tauri:dev
+```
+
 ## Engineering Guidelines (latest)
 - Keep features behind documented contracts
 - Use typed tool schemas for all AI actions
