@@ -4,6 +4,7 @@ const voiceBtn = document.getElementById("voice") as HTMLButtonElement;
 const stopBtn = document.getElementById("stop") as HTMLButtonElement;
 const responseEl = document.getElementById("response") as HTMLPreElement;
 const statusEl = document.getElementById("status") as HTMLDivElement;
+const speechStateEl = document.getElementById("speech-state") as HTMLDivElement;
 const toolPreviewEl = document.getElementById("tool-preview") as HTMLPreElement;
 const eventLogEl = document.getElementById("event-log") as HTMLPreElement;
 const autoSpeakEl = document.getElementById("auto-speak") as HTMLInputElement;
@@ -46,6 +47,10 @@ voiceBtn.addEventListener("click", async () => {
       body: JSON.stringify({ text, voice: "system-default" })
     });
     const data = await res.json();
+    if (!data.ok) {
+      responseEl.textContent = `Speak rejected (mode=${data.mode})`;
+      return;
+    }
     responseEl.textContent = `Speak queued (mode=${data.mode}, request_id=${data.request_id})`;
   } catch (err) {
     responseEl.textContent = `Speak request failed: ${String(err)}`;
@@ -94,6 +99,21 @@ function connectEvents() {
         statusEl.textContent = "Daemon: ok (live)";
         statusEl.className = "status ok";
       }
+
+      if (payload.event === "speech_started") {
+        speechStateEl.textContent = "Speech: speaking";
+        speechStateEl.className = "status ok";
+        voiceBtn.disabled = true;
+        stopBtn.disabled = false;
+      }
+
+      if (payload.event === "speech_stopped") {
+        const reason = payload?.data?.reason ?? "unknown";
+        speechStateEl.textContent = `Speech: idle (${reason})`;
+        speechStateEl.className = "status";
+        voiceBtn.disabled = false;
+        stopBtn.disabled = true;
+      }
     } catch {
       pushEventLine(String(ev.data));
     }
@@ -138,4 +158,5 @@ autoSpeakEl.addEventListener("change", async () => {
 checkHealth();
 setInterval(checkHealth, 5000);
 connectEvents();
+stopBtn.disabled = true;
 loadVoiceConfig();

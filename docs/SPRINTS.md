@@ -22,7 +22,8 @@
 - [x] Voice provider health endpoint
 - [x] UI toggle for auto-speak setting
 - [x] Native TTS command adapters (Linux/macOS/Windows command path)
-- [ ] Voice toggles and interruption refinements
+- [x] Voice interruption refinements (cancel active speech on new request)
+- [x] UI speaking state + stop guardrails
 
 ## Sprint 3
 - Folder opt-in

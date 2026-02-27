@@ -157,7 +157,7 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
     );
 
     let cfg = state.voice_settings.lock().await.clone();
-    if cfg.auto_speak {
+    if cfg.auto_speak && !reply.trim().is_empty() {
         let _ = enqueue_speech(
             state.clone(),
             SpeakRequest {
@@ -185,7 +185,16 @@ async fn enqueue_speech(state: AppState, req: SpeakRequest) -> SpeakResponse {
     let cfg = state.voice_settings.lock().await.clone();
     let (effective_provider, _available, detail) = speech::detect_effective_provider(&cfg);
     let configured_provider = cfg.provider;
+    let text = req.text.trim().to_string();
     let voice = req.voice.clone().unwrap_or(cfg.default_voice);
+
+    if text.is_empty() {
+        return SpeakResponse {
+            ok: false,
+            request_id,
+            mode: "rejected_empty_text",
+        };
+    }
 
     // cancel any current active speech task before starting a new one
     if let Some(handle) = state.active_speech_task.lock().await.take() {
@@ -205,7 +214,7 @@ async fn enqueue_speech(state: AppState, req: SpeakRequest) -> SpeakResponse {
         data: serde_json::json!({
           "request_id": request_id,
           "voice": voice,
-          "text": req.text,
+          "text": text,
           "provider": effective_provider,
           "configured_provider": configured_provider,
           "provider_detail": detail
@@ -215,7 +224,7 @@ async fn enqueue_speech(state: AppState, req: SpeakRequest) -> SpeakResponse {
 
     let tx = state.events_tx.clone();
     let rid = request_id.clone();
-    let text = req.text;
+    let text = text;
     let voice_clone = voice.clone();
     let provider_clone = effective_provider.clone();
 

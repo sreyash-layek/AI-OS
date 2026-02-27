@@ -125,4 +125,4 @@ Returns provider health resolution:
 ## Next
 - Add tool-call envelope format v2 with policy hints
 - Add permission prompt event schema
-- Add native TTS provider wiring (non-mock)
+- Replace command-based system TTS with native API adapters where possible
