@@ -121,3 +121,23 @@ pre {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.batch-counts {
+  display: flex;
+  gap: .45rem;
+  margin: .3rem 0 .6rem;
+}
+
+.chip {
+  display: inline-block;
+  font-size: .75rem;
+  border-radius: 999px;
+  padding: .2rem .5rem;
+  border: 1px solid #ffffff33;
+  color: #dbe6ff;
+}
+
+.chip.c { border-color: #4ce0b266; color: #8affd7; }
+.chip.u { border-color: #5db0ff66; color: #9ad1ff; }
+.chip.d { border-color: #ff7b8b66; color: #ffb7c2; }
+.chip.r { border-color: #c08cff66; color: #e2c4ff; }

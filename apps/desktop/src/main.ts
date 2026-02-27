@@ -17,6 +17,8 @@ const searchQueryEl = document.getElementById("search-query") as HTMLInputElemen
 const searchBtn = document.getElementById("search-btn") as HTMLButtonElement;
 const searchResultsEl = document.getElementById("search-results") as HTMLPreElement;
 const batchStatsEl = document.getElementById("batch-stats") as HTMLPreElement;
+const batchFreshnessEl = document.getElementById("batch-freshness") as HTMLSpanElement;
+const batchCountsEl = document.getElementById("batch-counts") as HTMLDivElement;
 
 async function sendMessage() {
   const message = promptInput.value.trim();
@@ -172,11 +174,31 @@ async function checkHealth() {
 }
 
 const eventLines: string[] = [];
+let lastBatchAt: number | null = null;
 
 function pushEventLine(line: string) {
   eventLines.unshift(line);
   if (eventLines.length > 12) eventLines.pop();
   eventLogEl.textContent = eventLines.join("\n");
+}
+
+function updateBatchFreshness() {
+  if (!lastBatchAt) {
+    batchFreshnessEl.textContent = "never";
+    return;
+  }
+
+  const seconds = Math.max(0, Math.floor((Date.now() - lastBatchAt) / 1000));
+  batchFreshnessEl.textContent = `${seconds}s ago`;
+}
+
+function setBatchCountChips(create = 0, update = 0, del = 0, rename = 0) {
+  batchCountsEl.innerHTML = `
+    <span class="chip c">C:${create}</span>
+    <span class="chip u">U:${update}</span>
+    <span class="chip d">D:${del}</span>
+    <span class="chip r">R:${rename}</span>
+  `;
 }
 
 function connectEvents() {
@@ -216,14 +238,23 @@ function connectEvents() {
         const counts = payload?.data?.counts ?? {};
         const samplePaths = payload?.data?.sample_paths ?? [];
         const scopeId = payload?.data?.scope_id ?? "unknown";
+        const createCount = counts.create ?? 0;
+        const updateCount = counts.update ?? 0;
+        const deleteCount = counts.delete ?? 0;
+        const renameCount = counts.rename ?? 0;
+
+        setBatchCountChips(createCount, updateCount, deleteCount, renameCount);
+        lastBatchAt = Date.now();
+        updateBatchFreshness();
+
         batchStatsEl.textContent = JSON.stringify(
           {
             scope_id: scopeId,
             counts: {
-              create: counts.create ?? 0,
-              update: counts.update ?? 0,
-              delete: counts.delete ?? 0,
-              rename: counts.rename ?? 0
+              create: createCount,
+              update: updateCount,
+              delete: deleteCount,
+              rename: renameCount
             },
             sample_paths: samplePaths
           },
@@ -276,6 +307,9 @@ autoSpeakEl.addEventListener("change", async () => {
 
 checkHealth();
 setInterval(checkHealth, 5000);
+setBatchCountChips();
+updateBatchFreshness();
+setInterval(updateBatchFreshness, 1000);
 connectEvents();
 stopBtn.disabled = true;
 loadVoiceConfig();
