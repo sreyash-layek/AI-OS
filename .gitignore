@@ -1,0 +1,21 @@
+# Node/Tauri
+node_modules/
+dist/
+build/
+*.log
+
+# Rust
+target/
+Cargo.lock
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Env
+.env
+.env.*
