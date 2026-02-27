@@ -5,6 +5,7 @@ const stopBtn = document.getElementById("stop") as HTMLButtonElement;
 const responseEl = document.getElementById("response") as HTMLPreElement;
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const speechStateEl = document.getElementById("speech-state") as HTMLDivElement;
+const micOrbBtn = document.getElementById("mic-orb") as HTMLButtonElement;
 const toolPreviewEl = document.getElementById("tool-preview") as HTMLPreElement;
 const eventLogEl = document.getElementById("event-log") as HTMLPreElement;
 const autoSpeakEl = document.getElementById("auto-speak") as HTMLInputElement;
@@ -131,6 +132,30 @@ searchQueryEl.addEventListener("keydown", (e) => {
   if (e.key === "Enter") runSearch();
 });
 
+micOrbBtn?.addEventListener("click", async () => {
+  // Voice-first behavior: if already speaking, stop. Otherwise speak prompt (or default line).
+  if (!stopBtn.disabled) {
+    await fetch("/v1/speak/stop", { method: "POST" });
+    return;
+  }
+
+  if (promptInput.value.trim()) {
+    await sendMessage();
+    return;
+  }
+
+  const text = "Hey Sreyash, AI-OS is online and ready.";
+  try {
+    await fetch("/v1/speak", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice: "system-default" })
+    });
+  } catch {
+    // no-op
+  }
+});
+
 voiceBtn.addEventListener("click", async () => {
   const text = promptInput.value.trim() || "Hello from AI-OS voice pipeline.";
 
@@ -216,18 +241,20 @@ function connectEvents() {
       }
 
       if (payload.event === "speech_started") {
-        speechStateEl.textContent = "Speech: speaking";
-        speechStateEl.className = "status ok";
+        speechStateEl.textContent = "Speaking…";
+        speechStateEl.className = "speech-line live";
         voiceBtn.disabled = true;
         stopBtn.disabled = false;
+        micOrbBtn?.classList.add("live");
       }
 
       if (payload.event === "speech_stopped") {
         const reason = payload?.data?.reason ?? "unknown";
-        speechStateEl.textContent = `Speech: idle (${reason})`;
-        speechStateEl.className = "status";
+        speechStateEl.textContent = `Idle (${reason})`;
+        speechStateEl.className = "speech-line";
         voiceBtn.disabled = false;
         stopBtn.disabled = true;
+        micOrbBtn?.classList.remove("live");
       }
 
       if (payload.event === "index_scope_added" || payload.event === "index_scope_removed") {
