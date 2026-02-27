@@ -106,9 +106,9 @@ pub async fn run_mock_speech(request_id: String, text: String, voice: String) ->
 pub async fn run_system_speech(request_id: String, text: String, voice: String) -> EventEnvelope {
     let result = run_system_command(&text, &voice);
 
-    let (reason, ok) = match result {
-        Ok(()) => ("system_complete", true),
-        Err(err) => (err.as_str(), false),
+    let (reason, ok): (String, bool) = match result {
+        Ok(()) => ("system_complete".to_string(), true),
+        Err(err) => (err, false),
     };
 
     EventEnvelope {
@@ -126,6 +126,7 @@ pub async fn run_system_speech(request_id: String, text: String, voice: String) 
 }
 
 fn run_system_command(text: &str, voice: &str) -> Result<(), String> {
+    let _ = voice;
     #[cfg(target_os = "linux")]
     {
         let status = Command::new("spd-say").arg(text).status();
