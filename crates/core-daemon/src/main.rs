@@ -53,9 +53,22 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 async fn chat(Json(req): Json<ChatRequest>) -> impl IntoResponse {
-    let normalized = req.message.to_lowercase();
+    let tool_preview = classify_tool_preview(&req.message);
 
-    let tool_preview = if normalized.contains("open") {
+    Json(ChatResponse {
+        reply: format!(
+            "Sprint 1 scaffold active. Received: '{}'. Tool execution will be added next.",
+            req.message
+        ),
+        mode: "mock",
+        tool_preview,
+    })
+}
+
+fn classify_tool_preview(message: &str) -> ToolPreview {
+    let normalized = message.to_lowercase();
+
+    if normalized.contains("open") {
         ToolPreview {
             name: "open_app_or_file".to_string(),
             risk_tier: 1,
@@ -77,16 +90,7 @@ async fn chat(Json(req): Json<ChatRequest>) -> impl IntoResponse {
             requires_confirmation: false,
             note: "Read-only search action. Stub routing for now.".to_string(),
         }
-    };
-
-    Json(ChatResponse {
-        reply: format!(
-            "Sprint 1 scaffold active. Received: '{}'. Tool execution will be added next.",
-            req.message
-        ),
-        mode: "mock",
-        tool_preview,
-    })
+    }
 }
 
 async fn events(ws: WebSocketUpgrade) -> impl IntoResponse {
@@ -127,4 +131,33 @@ async fn events(ws: WebSocketUpgrade) -> impl IntoResponse {
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classify_tool_preview;
+
+    #[test]
+    fn classifies_open_as_tier_1() {
+        let preview = classify_tool_preview("Open downloads");
+        assert_eq!(preview.name, "open_app_or_file");
+        assert_eq!(preview.risk_tier, 1);
+        assert!(!preview.requires_confirmation);
+    }
+
+    #[test]
+    fn classifies_delete_as_tier_2() {
+        let preview = classify_tool_preview("Delete old files");
+        assert_eq!(preview.name, "delete_file");
+        assert_eq!(preview.risk_tier, 2);
+        assert!(preview.requires_confirmation);
+    }
+
+    #[test]
+    fn classifies_default_as_read_only_search() {
+        let preview = classify_tool_preview("Find project notes");
+        assert_eq!(preview.name, "search_files_semantic");
+        assert_eq!(preview.risk_tier, 0);
+        assert!(!preview.requires_confirmation);
+    }
 }

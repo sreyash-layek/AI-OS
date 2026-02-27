@@ -1,0 +1,30 @@
+# TESTING
+
+## Why tests now?
+Sprint 2 added enough behavior (routing, speech lifecycle, API contracts) that regression risk is real. Unit tests help us move faster without breaking existing behavior.
+
+## Current test scope
+- Rust unit tests in `crates/core-daemon/src/main.rs`
+  - Tool preview classification logic
+
+## Run tests locally
+
+### Direct host
+```bash
+cargo test -p core-daemon -- --nocapture
+```
+
+### In dev container
+```bash
+docker compose exec dev bash -lc "cargo test -p core-daemon -- --nocapture"
+```
+
+## CI
+GitHub Actions now runs:
+- `cargo check -p core-daemon`
+- `cargo test -p core-daemon -- --nocapture`
+
+## Next testing expansion
+- Extract `chat` routing into dedicated module with richer table-driven tests
+- Add API handler tests for `/v1/speak` and `/v1/config/voice`
+- Add frontend unit tests (Vitest) for event parsing + state transitions

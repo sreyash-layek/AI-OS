@@ -46,6 +46,11 @@ cd apps/desktop
 npm run tauri:dev
 ```
 
+Run unit tests:
+```bash
+cargo test -p core-daemon -- --nocapture
+```
+
 ## Engineering Guidelines (latest)
 - Keep features behind documented contracts
 - Use typed tool schemas for all AI actions
