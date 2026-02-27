@@ -9,7 +9,7 @@ use axum::{
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
-    path::Path,
+    path::Path as StdPath,
     sync::Arc,
     time::UNIX_EPOCH,
 };
@@ -261,12 +261,12 @@ async fn stop_scope_watcher(state: &AppState, scope_id: &str) {
 
 fn scan_scope_files(root: &str) -> Vec<(String, i64, String)> {
     let mut out = Vec::new();
-    let root_path = Path::new(root);
+    let root_path = StdPath::new(root);
     if !root_path.exists() {
         return out;
     }
 
-    fn walk(dir: &Path, out: &mut Vec<(String, i64, String)>) {
+    fn walk(dir: &StdPath, out: &mut Vec<(String, i64, String)>) {
         let Ok(read_dir) = std::fs::read_dir(dir) else {
             return;
         };
