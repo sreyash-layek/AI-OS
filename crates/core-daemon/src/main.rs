@@ -1,7 +1,7 @@
 use axum::{
-    extract::{State, WebSocketUpgrade},
+    extract::{Path, Query, State, WebSocketUpgrade},
     response::IntoResponse,
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use std::{net::SocketAddr, sync::Arc};
@@ -17,8 +17,9 @@ use uuid::Uuid;
 use core_daemon::classify_tool_preview;
 use core_daemon::speech;
 use core_daemon::types::{
-    ChatRequest, ChatResponse, EventEnvelope, HealthResponse, SpeakRequest, SpeakResponse,
-    UpdateVoiceSettingsRequest, VoiceProviderHealth, VoiceSettings,
+    ChatRequest, ChatResponse, CreateIndexScopeRequest, DeleteScopeResponse, EventEnvelope,
+    HealthResponse, IndexScope, IndexScopesResponse, SearchQuery, SearchResponse, SearchResultItem,
+    SpeakRequest, SpeakResponse, UpdateVoiceSettingsRequest, VoiceProviderHealth, VoiceSettings,
 };
 
 #[derive(Clone)]
@@ -27,6 +28,7 @@ struct AppState {
     events_tx: broadcast::Sender<EventEnvelope>,
     voice_settings: Arc<Mutex<VoiceSettings>>,
     active_speech_task: Arc<Mutex<Option<JoinHandle<()>>>>,
+    index_scopes: Arc<Mutex<Vec<IndexScope>>>,
 }
 
 #[tokio::main]
@@ -44,6 +46,7 @@ async fn main() {
             default_voice: "system-default".to_string(),
         })),
         active_speech_task: Arc::new(Mutex::new(None)),
+        index_scopes: Arc::new(Mutex::new(Vec::new())),
     };
 
     let app = app_router(state);
@@ -65,8 +68,17 @@ fn app_router(state: AppState) -> Router {
         .route("/v1/events", get(events))
         .route("/v1/speak", post(speak))
         .route("/v1/speak/stop", post(stop_speak))
-        .route("/v1/config/voice", get(get_voice_config).post(update_voice_config))
+        .route(
+            "/v1/config/voice",
+            get(get_voice_config).post(update_voice_config),
+        )
         .route("/v1/config/voice/health", get(voice_health))
+        .route(
+            "/v1/index/scopes",
+            get(list_index_scopes).post(create_index_scope),
+        )
+        .route("/v1/index/scopes/{id}", delete(delete_index_scope))
+        .route("/v1/search", get(search_scopes))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state)
@@ -131,7 +143,6 @@ async fn update_voice_config(
 async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> impl IntoResponse {
     let tool_preview = classify_tool_preview(&req.message);
 
-
     let reply = format!(
         "Sprint scaffold active. Received: '{}'. Tool execution will be added next.",
         req.message
@@ -153,6 +164,101 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
         reply,
         mode: "mock",
         tool_preview,
+    })
+}
+
+async fn list_index_scopes(State(state): State<AppState>) -> impl IntoResponse {
+    let scopes = state.index_scopes.lock().await.clone();
+    Json(IndexScopesResponse { scopes })
+}
+
+async fn create_index_scope(
+    State(state): State<AppState>,
+    Json(req): Json<CreateIndexScopeRequest>,
+) -> impl IntoResponse {
+    let path = req.path.trim().to_string();
+    if path.is_empty() {
+        return Json(IndexScopesResponse { scopes: Vec::new() });
+    }
+
+    let mut scopes = state.index_scopes.lock().await;
+    if scopes
+        .iter()
+        .any(|s| s.path.eq_ignore_ascii_case(&path) || s.path == path)
+    {
+        return Json(IndexScopesResponse {
+            scopes: scopes.clone(),
+        });
+    }
+
+    let scope = IndexScope {
+        id: Uuid::new_v4().to_string(),
+        path,
+        enabled: req.enabled.unwrap_or(true),
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    scopes.push(scope.clone());
+
+    let _ = state.events_tx.send(EventEnvelope {
+        event: "index_scope_added".to_string(),
+        at: chrono::Utc::now().to_rfc3339(),
+        source: "core-daemon",
+        data: serde_json::json!({
+          "id": scope.id,
+          "path": scope.path,
+          "enabled": scope.enabled
+        }),
+    });
+
+    Json(IndexScopesResponse {
+        scopes: scopes.clone(),
+    })
+}
+
+async fn delete_index_scope(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let mut scopes = state.index_scopes.lock().await;
+    let before = scopes.len();
+    scopes.retain(|s| s.id != id);
+    let deleted = before != scopes.len();
+
+    if deleted {
+        let _ = state.events_tx.send(EventEnvelope {
+            event: "index_scope_removed".to_string(),
+            at: chrono::Utc::now().to_rfc3339(),
+            source: "core-daemon",
+            data: serde_json::json!({ "id": id }),
+        });
+    }
+
+    Json(DeleteScopeResponse {
+        ok: true,
+        deleted_id: if deleted { Some(id) } else { None },
+    })
+}
+
+async fn search_scopes(
+    State(state): State<AppState>,
+    Query(query): Query<SearchQuery>,
+) -> impl IntoResponse {
+    let q = query.q.trim().to_lowercase();
+    let scopes = state.index_scopes.lock().await;
+
+    let results = scopes
+        .iter()
+        .filter(|s| s.path.to_lowercase().contains(&q))
+        .map(|s| SearchResultItem {
+            scope_id: s.id.clone(),
+            path: s.path.clone(),
+            match_reason: "scope_path_contains_query",
+        })
+        .collect::<Vec<_>>();
+
+    Json(SearchResponse {
+        query: query.q,
+        results,
     })
 }
 
@@ -330,6 +436,7 @@ mod tests {
                 default_voice: "system-default".to_string(),
             })),
             active_speech_task: Arc::new(Mutex::new(None)),
+            index_scopes: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -355,7 +462,12 @@ mod tests {
     async fn health_endpoint_returns_ok() {
         let app = test_app();
         let resp = app
-            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -369,7 +481,10 @@ mod tests {
     async fn chat_endpoint_returns_tool_preview() {
         let app = test_app();
         let resp = app
-            .oneshot(post_json("/v1/chat", json!({ "message": "open downloads" })))
+            .oneshot(post_json(
+                "/v1/chat",
+                json!({ "message": "open downloads" }),
+            ))
             .await
             .unwrap();
 
@@ -384,7 +499,12 @@ mod tests {
 
         let get_resp = app
             .clone()
-            .oneshot(Request::builder().uri("/v1/config/voice").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/config/voice")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(get_resp.status(), 200);
@@ -461,6 +581,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn index_scope_create_list_delete_flow() {
+        let app = test_app();
+
+        let create_resp = app
+            .clone()
+            .oneshot(post_json(
+                "/v1/index/scopes",
+                json!({ "path": "C:/Users/sreya/Documents", "enabled": true }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(create_resp.status(), 200);
+        let created = body_json(create_resp).await;
+        assert_eq!(created["scopes"].as_array().unwrap().len(), 1);
+
+        let scope_id = created["scopes"][0]["id"].as_str().unwrap().to_string();
+
+        let list_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/index/scopes")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(list_resp.status(), 200);
+        let listed = body_json(list_resp).await;
+        assert_eq!(listed["scopes"].as_array().unwrap().len(), 1);
+
+        let search_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/search?q=documents")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(search_resp.status(), 200);
+        let searched = body_json(search_resp).await;
+        assert_eq!(searched["results"].as_array().unwrap().len(), 1);
+
+        let delete_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/v1/index/scopes/{}", scope_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(delete_resp.status(), 200);
+        let deleted = body_json(delete_resp).await;
+        assert_eq!(deleted["ok"], true);
+        assert!(deleted["deleted_id"].is_string());
+    }
+
+    #[tokio::test]
     async fn stop_speak_returns_ok() {
         let state = test_state();
         let resp = stop_speak(State(state)).await.into_response();
@@ -469,4 +652,3 @@ mod tests {
         assert_eq!(json["ok"], true);
     }
 }
-
