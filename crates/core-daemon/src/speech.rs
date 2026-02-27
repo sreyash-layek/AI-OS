@@ -73,12 +73,20 @@ where
 
 #[cfg(target_os = "linux")]
 fn command_exists_linux(cmd: &str) -> bool {
-    Command::new("sh")
-        .arg("-lc")
-        .arg(format!("command -v {} >/dev/null 2>&1", cmd))
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    command_exists_linux_with(cmd, |c| {
+        Command::new("sh")
+            .arg("-lc")
+            .arg(format!("command -v {} >/dev/null 2>&1", c))
+            .status()
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn command_exists_linux_with<F>(cmd: &str, run: F) -> bool
+where
+    F: FnOnce(&str) -> std::io::Result<std::process::ExitStatus>,
+{
+    run(cmd).map(|s| s.success()).unwrap_or(false)
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -290,8 +298,21 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn command_exists_linux_true_and_false_paths() {
-        assert!(command_exists_linux("sh"));
-        assert!(!command_exists_linux("definitely-not-a-real-command-xyz"));
+        assert!(command_exists_linux_with("sh", |_c| {
+            Command::new("sh").arg("-lc").arg("exit 0").status()
+        }));
+        assert!(!command_exists_linux_with("nope", |_c| {
+            Command::new("sh").arg("-lc").arg("exit 1").status()
+        }));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn command_exists_linux_handles_exec_error() {
+        let exists = command_exists_linux_with("anything", |_c| {
+            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "missing shell"))
+        });
+        assert!(!exists);
     }
 
     #[cfg(target_os = "linux")]
