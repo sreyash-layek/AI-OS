@@ -58,6 +58,14 @@ input {
   color: #fff;
 }
 .actions { display: flex; gap: .6rem; margin: .8rem 0; }
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin: .25rem 0 .9rem;
+  color: #b7c4ea;
+  font-size: .9rem;
+}
 button {
   border: 0;
   border-radius: 10px;

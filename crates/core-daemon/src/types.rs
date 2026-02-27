@@ -46,3 +46,17 @@ pub struct SpeakResponse {
     pub request_id: String,
     pub mode: &'static str,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VoiceSettings {
+    pub provider: String,
+    pub auto_speak: bool,
+    pub default_voice: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateVoiceSettingsRequest {
+    pub provider: Option<String>,
+    pub auto_speak: Option<bool>,
+    pub default_voice: Option<String>,
+}

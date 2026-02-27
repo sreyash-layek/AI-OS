@@ -5,33 +5,45 @@ use axum::{
     Json, Router,
 };
 use std::{net::SocketAddr, sync::Arc};
-use tokio::{sync::broadcast, time::{sleep, Duration}};
+use tokio::{
+    sync::{broadcast, Mutex},
+    task::JoinHandle,
+    time::{sleep, Duration},
+};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 use uuid::Uuid;
 
+mod speech;
 mod types;
 use types::{
-    ChatRequest, ChatResponse, EventEnvelope, HealthResponse, SpeakRequest, SpeakResponse, ToolPreview,
+    ChatRequest, ChatResponse, EventEnvelope, HealthResponse, SpeakRequest, SpeakResponse,
+    ToolPreview, UpdateVoiceSettingsRequest, VoiceSettings,
 };
 
 #[derive(Clone)]
 struct AppState {
     name: Arc<String>,
     events_tx: broadcast::Sender<EventEnvelope>,
+    voice_settings: Arc<Mutex<VoiceSettings>>,
+    active_speech_task: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     let (events_tx, _) = broadcast::channel::<EventEnvelope>(128);
 
     let state = AppState {
         name: Arc::new("AI-OS Core Daemon".to_string()),
         events_tx,
+        voice_settings: Arc::new(Mutex::new(VoiceSettings {
+            provider: "mock".to_string(),
+            auto_speak: false,
+            default_voice: "system-default".to_string(),
+        })),
+        active_speech_task: Arc::new(Mutex::new(None)),
     };
 
     let app = Router::new()
@@ -40,6 +52,7 @@ async fn main() {
         .route("/v1/events", get(events))
         .route("/v1/speak", post(speak))
         .route("/v1/speak/stop", post(stop_speak))
+        .route("/v1/config/voice", get(get_voice_config).post(update_voice_config))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -61,7 +74,44 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
     })
 }
 
-async fn chat(Json(req): Json<ChatRequest>) -> impl IntoResponse {
+async fn get_voice_config(State(state): State<AppState>) -> impl IntoResponse {
+    let cfg = state.voice_settings.lock().await.clone();
+    Json(cfg)
+}
+
+async fn update_voice_config(
+    State(state): State<AppState>,
+    Json(req): Json<UpdateVoiceSettingsRequest>,
+) -> impl IntoResponse {
+    let mut cfg = state.voice_settings.lock().await;
+
+    if let Some(provider) = req.provider {
+        cfg.provider = provider;
+    }
+    if let Some(auto_speak) = req.auto_speak {
+        cfg.auto_speak = auto_speak;
+    }
+    if let Some(default_voice) = req.default_voice {
+        cfg.default_voice = default_voice;
+    }
+
+    let updated = cfg.clone();
+
+    let _ = state.events_tx.send(EventEnvelope {
+        event: "voice_config_updated".to_string(),
+        at: chrono::Utc::now().to_rfc3339(),
+        source: "core-daemon",
+        data: serde_json::json!({
+          "provider": updated.provider,
+          "auto_speak": updated.auto_speak,
+          "default_voice": updated.default_voice
+        }),
+    });
+
+    Json(updated)
+}
+
+async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> impl IntoResponse {
     let normalized = req.message.to_lowercase();
 
     let tool_preview = if normalized.contains("open") {
@@ -88,48 +138,99 @@ async fn chat(Json(req): Json<ChatRequest>) -> impl IntoResponse {
         }
     };
 
+    let reply = format!(
+        "Sprint scaffold active. Received: '{}'. Tool execution will be added next.",
+        req.message
+    );
+
+    let cfg = state.voice_settings.lock().await.clone();
+    if cfg.auto_speak {
+        let _ = enqueue_speech(
+            state.clone(),
+            SpeakRequest {
+                text: reply.clone(),
+                voice: Some(cfg.default_voice),
+            },
+        )
+        .await;
+    }
+
     Json(ChatResponse {
-        reply: format!(
-            "Sprint scaffold active. Received: '{}'. Tool execution will be added next.",
-            req.message
-        ),
+        reply,
         mode: "mock",
         tool_preview,
     })
 }
 
 async fn speak(State(state): State<AppState>, Json(req): Json<SpeakRequest>) -> impl IntoResponse {
+    let response = enqueue_speech(state, req).await;
+    Json(response)
+}
+
+async fn enqueue_speech(state: AppState, req: SpeakRequest) -> SpeakResponse {
     let request_id = Uuid::new_v4().to_string();
-    let tx = state.events_tx.clone();
-    let voice = req.voice.clone().unwrap_or_else(|| "system-default".to_string());
+    let cfg = state.voice_settings.lock().await.clone();
+    let provider = cfg.provider;
+    let voice = req.voice.clone().unwrap_or(cfg.default_voice);
+
+    // cancel any current active speech task before starting a new one
+    if let Some(handle) = state.active_speech_task.lock().await.take() {
+        handle.abort();
+        let _ = state.events_tx.send(EventEnvelope {
+            event: "speech_stopped".to_string(),
+            at: chrono::Utc::now().to_rfc3339(),
+            source: "core-daemon",
+            data: serde_json::json!({ "reason": "interrupted_by_new_request" }),
+        });
+    }
 
     let started = EventEnvelope {
         event: "speech_started".to_string(),
         at: chrono::Utc::now().to_rfc3339(),
         source: "core-daemon",
-        data: serde_json::json!({ "request_id": request_id, "voice": voice, "text": req.text }),
+        data: serde_json::json!({
+          "request_id": request_id,
+          "voice": voice,
+          "text": req.text,
+          "provider": provider
+        }),
     };
-    let _ = tx.send(started);
+    let _ = state.events_tx.send(started);
 
+    let tx = state.events_tx.clone();
     let rid = request_id.clone();
-    tokio::spawn(async move {
-        sleep(Duration::from_secs(2)).await;
-        let _ = tx.send(EventEnvelope {
-            event: "speech_stopped".to_string(),
-            at: chrono::Utc::now().to_rfc3339(),
-            source: "core-daemon",
-            data: serde_json::json!({ "request_id": rid, "reason": "mock_complete" }),
-        });
+    let text = req.text;
+    let voice_clone = voice.clone();
+    let provider_clone = provider.clone();
+
+    let task = tokio::spawn(async move {
+        let stop_event = if provider_clone == "system" {
+            speech::run_system_stub(rid, voice_clone).await
+        } else {
+            speech::run_mock_speech(rid, text, voice_clone).await
+        };
+
+        let _ = tx.send(stop_event);
     });
 
-    Json(SpeakResponse {
+    *state.active_speech_task.lock().await = Some(task);
+
+    SpeakResponse {
         ok: true,
         request_id,
-        mode: "mock",
-    })
+        mode: if provider == "system" {
+            "system_stub"
+        } else {
+            "mock"
+        },
+    }
 }
 
 async fn stop_speak(State(state): State<AppState>) -> impl IntoResponse {
+    if let Some(handle) = state.active_speech_task.lock().await.take() {
+        handle.abort();
+    }
+
     let _ = state.events_tx.send(EventEnvelope {
         event: "speech_stopped".to_string(),
         at: chrono::Utc::now().to_rfc3339(),

@@ -82,6 +82,30 @@ Speech lifecycle events are emitted over `/v1/events`:
 - `speech_started`
 - `speech_stopped`
 
+### GET /v1/config/voice
+Returns voice settings:
+
+```json
+{
+  "provider": "mock",
+  "auto_speak": false,
+  "default_voice": "system-default"
+}
+```
+
+### POST /v1/config/voice
+Partial update payload:
+
+```json
+{
+  "auto_speak": true
+}
+```
+
+## Notes
+- `mock` provider simulates duration based on text length.
+- `system` provider is currently a stub placeholder for native TTS adapters.
+
 ## Next
 - Add tool-call envelope format v2 with policy hints
 - Add permission prompt event schema

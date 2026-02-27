@@ -6,6 +6,7 @@ const responseEl = document.getElementById("response") as HTMLPreElement;
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const toolPreviewEl = document.getElementById("tool-preview") as HTMLPreElement;
 const eventLogEl = document.getElementById("event-log") as HTMLPreElement;
+const autoSpeakEl = document.getElementById("auto-speak") as HTMLInputElement;
 
 async function sendMessage() {
   const message = promptInput.value.trim();
@@ -104,6 +105,30 @@ function connectEvents() {
   };
 }
 
+async function loadVoiceConfig() {
+  try {
+    const res = await fetch("/v1/config/voice");
+    const cfg = await res.json();
+    autoSpeakEl.checked = Boolean(cfg.auto_speak);
+  } catch {
+    // ignore for now
+  }
+}
+
+autoSpeakEl.addEventListener("change", async () => {
+  try {
+    await fetch("/v1/config/voice", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ auto_speak: autoSpeakEl.checked })
+    });
+    responseEl.textContent = `Auto-speak set to ${autoSpeakEl.checked}.`;
+  } catch (err) {
+    responseEl.textContent = `Failed to update voice config: ${String(err)}`;
+  }
+});
+
 checkHealth();
 setInterval(checkHealth, 5000);
 connectEvents();
+loadVoiceConfig();

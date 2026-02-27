@@ -18,6 +18,8 @@
 - [x] Daemon speech endpoints (`/v1/speak`, `/v1/speak/stop`)
 - [x] UI speak/stop controls wired to API
 - [x] Speech lifecycle events in websocket timeline
+- [x] Voice config API (`provider`, `auto_speak`, `default_voice`)
+- [x] UI toggle for auto-speak setting
 - [ ] Native TTS adapters (macOS/Windows/Linux)
 - [ ] Voice toggles and interruption refinements
 
