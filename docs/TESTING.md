@@ -24,7 +24,7 @@ Two separate workflows are configured:
 
 1. **Unit Tests** (`.github/workflows/tests.yml`)
    - `cargo check -p core-daemon`
-   - `cargo test -p core-daemon --lib -- --nocapture`
+   - `cargo test -p core-daemon -- --nocapture`
 
 2. **Coverage** (`.github/workflows/coverage.yml`)
    - `cargo llvm-cov -p core-daemon --lib --fail-under-lines 100 --summary-only`

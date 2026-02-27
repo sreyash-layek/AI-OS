@@ -16,5 +16,5 @@ jobs:
       - name: Rust check
         run: cargo check -p core-daemon
 
-      - name: Run core-daemon unit tests
-        run: cargo test -p core-daemon --lib -- --nocapture
+      - name: Run core-daemon unit tests (lib + bin test modules)
+        run: cargo test -p core-daemon -- --nocapture

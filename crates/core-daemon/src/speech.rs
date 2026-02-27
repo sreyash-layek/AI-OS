@@ -1,4 +1,4 @@
-use core_daemon::types::{EventEnvelope, VoiceSettings};
+use crate::types::{EventEnvelope, VoiceSettings};
 use std::process::Command;
 use tokio::time::{sleep, Duration};
 
@@ -180,4 +180,40 @@ fn run_system_command(text: &str, voice: &str) -> Result<(), String> {
 #[cfg(target_os = "windows")]
 fn escape_ps(input: &str) -> String {
     input.replace('\'', "''")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detect_mock_provider_when_configured_mock() {
+        let settings = VoiceSettings {
+            provider: "mock".to_string(),
+            auto_speak: false,
+            default_voice: "system-default".to_string(),
+        };
+
+        let (effective, available, detail) = detect_effective_provider(&settings);
+        assert_eq!(effective, "mock");
+        assert!(available);
+        assert!(detail.contains("mock"));
+    }
+
+    #[tokio::test]
+    async fn mock_speech_emits_stopped_event_shape() {
+        let event = run_mock_speech(
+            "req-1".to_string(),
+            "hello world".to_string(),
+            "system-default".to_string(),
+        )
+        .await;
+
+        assert_eq!(event.event, "speech_stopped");
+        assert_eq!(event.source, "core-daemon");
+        assert_eq!(event.data["request_id"], "req-1");
+        assert_eq!(event.data["provider"], "mock");
+        assert_eq!(event.data["voice"], "system-default");
+        assert_eq!(event.data["reason"], "mock_complete");
+    }
 }

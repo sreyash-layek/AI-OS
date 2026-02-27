@@ -14,9 +14,8 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 use uuid::Uuid;
 
-mod speech;
-
 use core_daemon::classify_tool_preview;
+use core_daemon::speech;
 use core_daemon::types::{
     ChatRequest, ChatResponse, EventEnvelope, HealthResponse, SpeakRequest, SpeakResponse,
     UpdateVoiceSettingsRequest, VoiceProviderHealth, VoiceSettings,
@@ -47,17 +46,7 @@ async fn main() {
         active_speech_task: Arc::new(Mutex::new(None)),
     };
 
-    let app = Router::new()
-        .route("/health", get(health))
-        .route("/v1/chat", post(chat))
-        .route("/v1/events", get(events))
-        .route("/v1/speak", post(speak))
-        .route("/v1/speak/stop", post(stop_speak))
-        .route("/v1/config/voice", get(get_voice_config).post(update_voice_config))
-        .route("/v1/config/voice/health", get(voice_health))
-        .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive())
-        .with_state(state);
+    let app = app_router(state);
 
     let addr: SocketAddr = "0.0.0.0:7777".parse().expect("valid socket address");
     info!("core-daemon listening on http://{}", addr);
@@ -67,6 +56,20 @@ async fn main() {
         .expect("bind listener");
 
     axum::serve(listener, app).await.expect("start server");
+}
+
+fn app_router(state: AppState) -> Router {
+    Router::new()
+        .route("/health", get(health))
+        .route("/v1/chat", post(chat))
+        .route("/v1/events", get(events))
+        .route("/v1/speak", post(speak))
+        .route("/v1/speak/stop", post(stop_speak))
+        .route("/v1/config/voice", get(get_voice_config).post(update_voice_config))
+        .route("/v1/config/voice/health", get(voice_health))
+        .layer(TraceLayer::new_for_http())
+        .layer(CorsLayer::permissive())
+        .with_state(state)
 }
 
 async fn health(State(state): State<AppState>) -> impl IntoResponse {
@@ -306,5 +309,82 @@ async fn events(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl Int
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{body::Body, http::Request};
+    use http_body_util::BodyExt;
+    use tower::util::ServiceExt;
+
+    fn test_state() -> AppState {
+        let (events_tx, _) = broadcast::channel::<EventEnvelope>(32);
+        AppState {
+            name: Arc::new("AI-OS Core Daemon".to_string()),
+            events_tx,
+            voice_settings: Arc::new(Mutex::new(VoiceSettings {
+                provider: "mock".to_string(),
+                auto_speak: false,
+                default_voice: "system-default".to_string(),
+            })),
+            active_speech_task: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    #[tokio::test]
+    async fn health_endpoint_returns_ok() {
+        let app = app_router(test_state());
+        let resp = app
+            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), 200);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn chat_endpoint_returns_tool_preview() {
+        let app = app_router(test_state());
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"message":"open downloads"}"#))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), 200);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["tool_preview"]["name"], "open_app_or_file");
+    }
+
+    #[tokio::test]
+    async fn enqueue_speech_rejects_empty_text() {
+        let state = test_state();
+        let result = enqueue_speech(
+            state,
+            SpeakRequest {
+                text: "   ".to_string(),
+                voice: None,
+            },
+        )
+        .await;
+
+        assert!(!result.ok);
+        assert_eq!(result.mode, "rejected_empty_text");
+    }
+
+    #[tokio::test]
+    async fn stop_speak_returns_ok() {
+        let state = test_state();
+        let value = stop_speak(State(state)).await;
+        let json = serde_json::to_value(value.0).expect("json");
+        assert_eq!(json["ok"], true);
+    }
 }
 

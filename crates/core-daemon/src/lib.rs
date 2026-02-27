@@ -1,3 +1,4 @@
+pub mod speech;
 pub mod types;
 
 use types::ToolPreview;
