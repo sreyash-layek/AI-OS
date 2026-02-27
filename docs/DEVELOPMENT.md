@@ -53,6 +53,11 @@ curl -X POST http://127.0.0.1:7777/v1/speak \
   -d '{"text":"hello","voice":"system-default"}'
 ```
 
+Run unit tests:
+```bash
+cargo test -p core-daemon --lib -- --nocapture
+```
+
 ## Engineering Guidelines (latest)
 - Keep features behind documented contracts
 - Use typed tool schemas for all AI actions

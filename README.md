@@ -27,7 +27,7 @@ It is not a new kernel. It is a cross-platform AI-native desktop layer with:
 - `crates/tool-registry` → typed tool schemas + risk tiers
 - `crates/indexer` → file watchers + keyword/semantic indexing
 - `crates/speech` → TTS/ASR abstraction + platform adapters
-- `docs/` → architecture, install, development, security
+- `docs/` → architecture, install, development, security, testing
 
 ## Quick Start
 

@@ -1,0 +1,20 @@
+name: Coverage
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+
+jobs:
+  rust-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Enforce 95% line coverage (core-daemon lib)
+        run: cargo llvm-cov -p core-daemon --lib --fail-under-lines 95 --summary-only

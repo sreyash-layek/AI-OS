@@ -14,11 +14,11 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 use uuid::Uuid;
 
-mod speech;
-mod types;
-use types::{
+use core_daemon::classify_tool_preview;
+use core_daemon::speech;
+use core_daemon::types::{
     ChatRequest, ChatResponse, EventEnvelope, HealthResponse, SpeakRequest, SpeakResponse,
-    ToolPreview, UpdateVoiceSettingsRequest, VoiceProviderHealth, VoiceSettings,
+    UpdateVoiceSettingsRequest, VoiceProviderHealth, VoiceSettings,
 };
 
 #[derive(Clone)]
@@ -46,17 +46,7 @@ async fn main() {
         active_speech_task: Arc::new(Mutex::new(None)),
     };
 
-    let app = Router::new()
-        .route("/health", get(health))
-        .route("/v1/chat", post(chat))
-        .route("/v1/events", get(events))
-        .route("/v1/speak", post(speak))
-        .route("/v1/speak/stop", post(stop_speak))
-        .route("/v1/config/voice", get(get_voice_config).post(update_voice_config))
-        .route("/v1/config/voice/health", get(voice_health))
-        .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive())
-        .with_state(state);
+    let app = app_router(state);
 
     let addr: SocketAddr = "0.0.0.0:7777".parse().expect("valid socket address");
     info!("core-daemon listening on http://{}", addr);
@@ -66,6 +56,20 @@ async fn main() {
         .expect("bind listener");
 
     axum::serve(listener, app).await.expect("start server");
+}
+
+fn app_router(state: AppState) -> Router {
+    Router::new()
+        .route("/health", get(health))
+        .route("/v1/chat", post(chat))
+        .route("/v1/events", get(events))
+        .route("/v1/speak", post(speak))
+        .route("/v1/speak/stop", post(stop_speak))
+        .route("/v1/config/voice", get(get_voice_config).post(update_voice_config))
+        .route("/v1/config/voice/health", get(voice_health))
+        .layer(TraceLayer::new_for_http())
+        .layer(CorsLayer::permissive())
+        .with_state(state)
 }
 
 async fn health(State(state): State<AppState>) -> impl IntoResponse {
@@ -125,31 +129,8 @@ async fn update_voice_config(
 }
 
 async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> impl IntoResponse {
-    let normalized = req.message.to_lowercase();
+    let tool_preview = classify_tool_preview(&req.message);
 
-    let tool_preview = if normalized.contains("open") {
-        ToolPreview {
-            name: "open_app_or_file".to_string(),
-            risk_tier: 1,
-            requires_confirmation: false,
-            note: "Low-risk open action. Execution engine stub only in Sprint 1.".to_string(),
-        }
-    } else if normalized.contains("delete") || normalized.contains("remove") {
-        ToolPreview {
-            name: "delete_file".to_string(),
-            risk_tier: 2,
-            requires_confirmation: true,
-            note: "High-risk action. Confirmation required (policy engine in later sprint)."
-                .to_string(),
-        }
-    } else {
-        ToolPreview {
-            name: "search_files_semantic".to_string(),
-            risk_tier: 0,
-            requires_confirmation: false,
-            note: "Read-only search action. Stub routing for now.".to_string(),
-        }
-    };
 
     let reply = format!(
         "Sprint scaffold active. Received: '{}'. Tool execution will be added next.",
@@ -329,3 +310,163 @@ async fn events(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl Int
         }
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{body::Body, http::Request, Router};
+    use http_body_util::BodyExt;
+    use serde_json::{json, Value};
+    use tower::util::ServiceExt;
+
+    fn test_state() -> AppState {
+        let (events_tx, _) = broadcast::channel::<EventEnvelope>(32);
+        AppState {
+            name: Arc::new("AI-OS Core Daemon".to_string()),
+            events_tx,
+            voice_settings: Arc::new(Mutex::new(VoiceSettings {
+                provider: "mock".to_string(),
+                auto_speak: false,
+                default_voice: "system-default".to_string(),
+            })),
+            active_speech_task: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn test_app() -> Router {
+        app_router(test_state())
+    }
+
+    async fn body_json(resp: axum::response::Response) -> Value {
+        let body = resp.into_body().collect().await.expect("body").to_bytes();
+        serde_json::from_slice(&body).expect("valid json")
+    }
+
+    fn post_json(path: &str, payload: Value) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn health_endpoint_returns_ok() {
+        let app = test_app();
+        let resp = app
+            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), 200);
+        let json = body_json(resp).await;
+        assert_eq!(json["status"], "ok");
+        assert_eq!(json["service"], "AI-OS Core Daemon");
+    }
+
+    #[tokio::test]
+    async fn chat_endpoint_returns_tool_preview() {
+        let app = test_app();
+        let resp = app
+            .oneshot(post_json("/v1/chat", json!({ "message": "open downloads" })))
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), 200);
+        let json = body_json(resp).await;
+        assert_eq!(json["tool_preview"]["name"], "open_app_or_file");
+    }
+
+    #[tokio::test]
+    async fn voice_config_get_and_update_work() {
+        let app = test_app();
+
+        let get_resp = app
+            .clone()
+            .oneshot(Request::builder().uri("/v1/config/voice").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(get_resp.status(), 200);
+        let before = body_json(get_resp).await;
+        assert_eq!(before["auto_speak"], false);
+
+        let update_resp = app
+            .clone()
+            .oneshot(post_json(
+                "/v1/config/voice",
+                json!({ "auto_speak": true, "default_voice": "nova" }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(update_resp.status(), 200);
+        let updated = body_json(update_resp).await;
+        assert_eq!(updated["auto_speak"], true);
+        assert_eq!(updated["default_voice"], "nova");
+    }
+
+    #[tokio::test]
+    async fn voice_health_endpoint_returns_provider_resolution() {
+        let app = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/config/voice/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        let json = body_json(resp).await;
+        assert!(json["configured_provider"].is_string());
+        assert!(json["effective_provider"].is_string());
+        assert!(json["available"].is_boolean());
+        assert!(json["detail"].is_string());
+    }
+
+    #[tokio::test]
+    async fn speak_endpoint_accepts_text() {
+        let app = test_app();
+        let resp = app
+            .oneshot(post_json(
+                "/v1/speak",
+                json!({ "text": "Hello AI-OS", "voice": "system-default" }),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), 200);
+        let json = body_json(resp).await;
+        assert_eq!(json["ok"], true);
+        assert!(json["request_id"].is_string());
+        assert!(json["mode"].is_string());
+    }
+
+    #[tokio::test]
+    async fn enqueue_speech_rejects_empty_text() {
+        let state = test_state();
+        let result = enqueue_speech(
+            state,
+            SpeakRequest {
+                text: "   ".to_string(),
+                voice: None,
+            },
+        )
+        .await;
+
+        assert!(!result.ok);
+        assert_eq!(result.mode, "rejected_empty_text");
+    }
+
+    #[tokio::test]
+    async fn stop_speak_returns_ok() {
+        let state = test_state();
+        let resp = stop_speak(State(state)).await.into_response();
+        assert_eq!(resp.status(), 200);
+        let json = body_json(resp).await;
+        assert_eq!(json["ok"], true);
+    }
+}
+
