@@ -1,6 +1,12 @@
-use axum::{extract::State, response::IntoResponse, routing::{get, post}, Json, Router};
+use axum::{
+    extract::{State, WebSocketUpgrade},
+    response::IntoResponse,
+    routing::{get, post},
+    Json, Router,
+};
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, sync::Arc};
+use tokio::time::{sleep, Duration};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 
@@ -39,6 +45,7 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health))
         .route("/v1/chat", post(chat))
+        .route("/v1/events", get(events))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -67,5 +74,26 @@ async fn chat(Json(req): Json<ChatRequest>) -> impl IntoResponse {
             req.message
         ),
         mode: "mock",
+    })
+}
+
+async fn events(ws: WebSocketUpgrade) -> impl IntoResponse {
+    ws.on_upgrade(|mut socket| async move {
+        let _ = socket
+            .send(axum::extract::ws::Message::Text(
+                "event:connected".to_string().into(),
+            ))
+            .await;
+
+        loop {
+            sleep(Duration::from_secs(15)).await;
+            if socket
+                .send(axum::extract::ws::Message::Text("event:heartbeat".to_string().into()))
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
     })
 }

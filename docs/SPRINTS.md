@@ -6,6 +6,8 @@
 - [x] Desktop app scaffold folder
 - [x] IPC documentation
 - [x] Vite desktop shell UI (futuristic launcher prototype)
+- [x] Daemon health badge in UI
+- [x] WebSocket event stub (daemon -> UI)
 - [x] Tauri wrapper bootstrap
 
 ## Sprint 2 (next)

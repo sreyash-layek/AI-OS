@@ -32,7 +32,14 @@ Response (Sprint 1 mock):
 }
 ```
 
+## WebSocket events (Sprint 1)
+
+### GET /v1/events (WebSocket)
+Sends lightweight lifecycle events:
+- `event:connected`
+- `event:heartbeat` (every 15s)
+
 ## Next
-- Add event stream for action previews
 - Add tool-call envelope format
 - Add permission prompt event schema
+- Move to structured JSON event payloads
