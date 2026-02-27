@@ -314,8 +314,9 @@ async fn events(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl Int
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{body::Body, http::Request};
+    use axum::{body::Body, http::Request, Router};
     use http_body_util::BodyExt;
+    use serde_json::{json, Value};
     use tower::util::ServiceExt;
 
     fn test_state() -> AppState {
@@ -332,35 +333,115 @@ mod tests {
         }
     }
 
+    fn test_app() -> Router {
+        app_router(test_state())
+    }
+
+    async fn body_json(resp: axum::response::Response) -> Value {
+        let body = resp.into_body().collect().await.expect("body").to_bytes();
+        serde_json::from_slice(&body).expect("valid json")
+    }
+
+    fn post_json(path: &str, payload: Value) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn health_endpoint_returns_ok() {
-        let app = app_router(test_state());
+        let app = test_app();
         let resp = app
             .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
             .await
             .unwrap();
 
         assert_eq!(resp.status(), 200);
-        let body = resp.into_body().collect().await.unwrap().to_bytes();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let json = body_json(resp).await;
         assert_eq!(json["status"], "ok");
+        assert_eq!(json["service"], "AI-OS Core Daemon");
     }
 
     #[tokio::test]
     async fn chat_endpoint_returns_tool_preview() {
-        let app = app_router(test_state());
-        let req = Request::builder()
-            .method("POST")
-            .uri("/v1/chat")
-            .header("content-type", "application/json")
-            .body(Body::from(r#"{"message":"open downloads"}"#))
+        let app = test_app();
+        let resp = app
+            .oneshot(post_json("/v1/chat", json!({ "message": "open downloads" })))
+            .await
             .unwrap();
 
-        let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), 200);
-        let body = resp.into_body().collect().await.unwrap().to_bytes();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let json = body_json(resp).await;
         assert_eq!(json["tool_preview"]["name"], "open_app_or_file");
+    }
+
+    #[tokio::test]
+    async fn voice_config_get_and_update_work() {
+        let app = test_app();
+
+        let get_resp = app
+            .clone()
+            .oneshot(Request::builder().uri("/v1/config/voice").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(get_resp.status(), 200);
+        let before = body_json(get_resp).await;
+        assert_eq!(before["auto_speak"], false);
+
+        let update_resp = app
+            .clone()
+            .oneshot(post_json(
+                "/v1/config/voice",
+                json!({ "auto_speak": true, "default_voice": "nova" }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(update_resp.status(), 200);
+        let updated = body_json(update_resp).await;
+        assert_eq!(updated["auto_speak"], true);
+        assert_eq!(updated["default_voice"], "nova");
+    }
+
+    #[tokio::test]
+    async fn voice_health_endpoint_returns_provider_resolution() {
+        let app = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/config/voice/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        let json = body_json(resp).await;
+        assert!(json["configured_provider"].is_string());
+        assert!(json["effective_provider"].is_string());
+        assert!(json["available"].is_boolean());
+        assert!(json["detail"].is_string());
+    }
+
+    #[tokio::test]
+    async fn speak_endpoint_accepts_text() {
+        let app = test_app();
+        let resp = app
+            .oneshot(post_json(
+                "/v1/speak",
+                json!({ "text": "Hello AI-OS", "voice": "system-default" }),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), 200);
+        let json = body_json(resp).await;
+        assert_eq!(json["ok"], true);
+        assert!(json["request_id"].is_string());
+        assert!(json["mode"].is_string());
     }
 
     #[tokio::test]
@@ -384,8 +465,7 @@ mod tests {
         let state = test_state();
         let resp = stop_speak(State(state)).await.into_response();
         assert_eq!(resp.status(), 200);
-        let body = resp.into_body().collect().await.unwrap().to_bytes();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let json = body_json(resp).await;
         assert_eq!(json["ok"], true);
     }
 }
