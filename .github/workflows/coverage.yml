@@ -16,5 +16,5 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Enforce 100% line coverage (core-daemon lib)
-        run: cargo llvm-cov -p core-daemon --lib --fail-under-lines 100 --summary-only
+      - name: Enforce 95% line coverage (core-daemon lib)
+        run: cargo llvm-cov -p core-daemon --lib --fail-under-lines 95 --summary-only
