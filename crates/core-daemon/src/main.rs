@@ -18,7 +18,7 @@ mod speech;
 mod types;
 use types::{
     ChatRequest, ChatResponse, EventEnvelope, HealthResponse, SpeakRequest, SpeakResponse,
-    ToolPreview, UpdateVoiceSettingsRequest, VoiceSettings,
+    ToolPreview, UpdateVoiceSettingsRequest, VoiceProviderHealth, VoiceSettings,
 };
 
 #[derive(Clone)]
@@ -53,6 +53,7 @@ async fn main() {
         .route("/v1/speak", post(speak))
         .route("/v1/speak/stop", post(stop_speak))
         .route("/v1/config/voice", get(get_voice_config).post(update_voice_config))
+        .route("/v1/config/voice/health", get(voice_health))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -77,6 +78,18 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
 async fn get_voice_config(State(state): State<AppState>) -> impl IntoResponse {
     let cfg = state.voice_settings.lock().await.clone();
     Json(cfg)
+}
+
+async fn voice_health(State(state): State<AppState>) -> impl IntoResponse {
+    let cfg = state.voice_settings.lock().await.clone();
+    let (effective_provider, available, detail) = speech::detect_effective_provider(&cfg);
+
+    Json(VoiceProviderHealth {
+        configured_provider: cfg.provider,
+        effective_provider,
+        available,
+        detail,
+    })
 }
 
 async fn update_voice_config(
@@ -170,7 +183,8 @@ async fn speak(State(state): State<AppState>, Json(req): Json<SpeakRequest>) -> 
 async fn enqueue_speech(state: AppState, req: SpeakRequest) -> SpeakResponse {
     let request_id = Uuid::new_v4().to_string();
     let cfg = state.voice_settings.lock().await.clone();
-    let provider = cfg.provider;
+    let (effective_provider, _available, detail) = speech::detect_effective_provider(&cfg);
+    let configured_provider = cfg.provider;
     let voice = req.voice.clone().unwrap_or(cfg.default_voice);
 
     // cancel any current active speech task before starting a new one
@@ -192,7 +206,9 @@ async fn enqueue_speech(state: AppState, req: SpeakRequest) -> SpeakResponse {
           "request_id": request_id,
           "voice": voice,
           "text": req.text,
-          "provider": provider
+          "provider": effective_provider,
+          "configured_provider": configured_provider,
+          "provider_detail": detail
         }),
     };
     let _ = state.events_tx.send(started);
@@ -201,11 +217,18 @@ async fn enqueue_speech(state: AppState, req: SpeakRequest) -> SpeakResponse {
     let rid = request_id.clone();
     let text = req.text;
     let voice_clone = voice.clone();
-    let provider_clone = provider.clone();
+    let provider_clone = effective_provider.clone();
 
     let task = tokio::spawn(async move {
         let stop_event = if provider_clone == "system" {
-            speech::run_system_stub(rid, voice_clone).await
+            #[cfg(target_os = "linux")]
+            {
+                speech::run_linux_system_speech(rid, text, voice_clone).await
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                speech::run_system_stub(rid, voice_clone).await
+            }
         } else {
             speech::run_mock_speech(rid, text, voice_clone).await
         };
@@ -218,8 +241,8 @@ async fn enqueue_speech(state: AppState, req: SpeakRequest) -> SpeakResponse {
     SpeakResponse {
         ok: true,
         request_id,
-        mode: if provider == "system" {
-            "system_stub"
+        mode: if effective_provider == "system" {
+            "system"
         } else {
             "mock"
         },

@@ -102,9 +102,22 @@ Partial update payload:
 }
 ```
 
+### GET /v1/config/voice/health
+Returns provider health resolution:
+
+```json
+{
+  "configured_provider": "system",
+  "effective_provider": "mock",
+  "available": false,
+  "detail": "system requested, but spd-say not found; using mock"
+}
+```
+
 ## Notes
 - `mock` provider simulates duration based on text length.
-- `system` provider is currently a stub placeholder for native TTS adapters.
+- On Linux, `system` uses `spd-say` when available.
+- On other OSes, `system` is currently a placeholder until native adapters are wired.
 
 ## Next
 - Add tool-call envelope format v2 with policy hints

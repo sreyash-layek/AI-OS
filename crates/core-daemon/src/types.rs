@@ -60,3 +60,11 @@ pub struct UpdateVoiceSettingsRequest {
     pub auto_speak: Option<bool>,
     pub default_voice: Option<String>,
 }
+
+#[derive(Debug, Serialize)]
+pub struct VoiceProviderHealth {
+    pub configured_provider: String,
+    pub effective_provider: String,
+    pub available: bool,
+    pub detail: String,
+}

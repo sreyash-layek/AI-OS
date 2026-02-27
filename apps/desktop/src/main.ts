@@ -107,9 +107,16 @@ function connectEvents() {
 
 async function loadVoiceConfig() {
   try {
-    const res = await fetch("/v1/config/voice");
-    const cfg = await res.json();
+    const [cfgRes, healthRes] = await Promise.all([
+      fetch("/v1/config/voice"),
+      fetch("/v1/config/voice/health")
+    ]);
+
+    const cfg = await cfgRes.json();
+    const health = await healthRes.json();
+
     autoSpeakEl.checked = Boolean(cfg.auto_speak);
+    pushEventLine(`[voice] configured=${health.configured_provider}, effective=${health.effective_provider}, available=${health.available}`);
   } catch {
     // ignore for now
   }
