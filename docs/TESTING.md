@@ -22,7 +22,11 @@ docker compose exec dev bash -lc "cargo test -p core-daemon -- --nocapture"
 ## CI
 GitHub Actions now runs:
 - `cargo check -p core-daemon`
-- `cargo test -p core-daemon -- --nocapture`
+- `cargo test -p core-daemon --lib -- --nocapture`
+- `cargo llvm-cov -p core-daemon --lib --fail-under-lines 100 --summary-only`
+
+> Coverage gate is currently enforced at **100% for the `core-daemon` library target** (`src/lib.rs`).
+> The binary runtime (`src/main.rs`) is not included in this gate yet.
 
 ## Next testing expansion
 - Extract `chat` routing into dedicated module with richer table-driven tests
