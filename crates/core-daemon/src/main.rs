@@ -1,3 +1,5 @@
+mod index_store;
+
 use axum::{
     extract::{Path, Query, State, WebSocketUpgrade},
     response::IntoResponse,
@@ -14,12 +16,14 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 use uuid::Uuid;
 
+use crate::index_store::IndexStore;
+
 use core_daemon::classify_tool_preview;
 use core_daemon::speech;
 use core_daemon::types::{
     ChatRequest, ChatResponse, CreateIndexScopeRequest, DeleteScopeResponse, EventEnvelope,
-    HealthResponse, IndexScope, IndexScopesResponse, SearchQuery, SearchResponse, SearchResultItem,
-    SpeakRequest, SpeakResponse, UpdateVoiceSettingsRequest, VoiceProviderHealth, VoiceSettings,
+    HealthResponse, IndexScope, IndexScopesResponse, SearchQuery, SearchResponse, SpeakRequest,
+    SpeakResponse, UpdateVoiceSettingsRequest, VoiceProviderHealth, VoiceSettings,
 };
 
 #[derive(Clone)]
@@ -28,7 +32,7 @@ struct AppState {
     events_tx: broadcast::Sender<EventEnvelope>,
     voice_settings: Arc<Mutex<VoiceSettings>>,
     active_speech_task: Arc<Mutex<Option<JoinHandle<()>>>>,
-    index_scopes: Arc<Mutex<Vec<IndexScope>>>,
+    index_store: Arc<IndexStore>,
 }
 
 #[tokio::main]
@@ -36,6 +40,12 @@ async fn main() {
     tracing_subscriber::fmt().with_env_filter("info").init();
 
     let (events_tx, _) = broadcast::channel::<EventEnvelope>(128);
+
+    let db_path = std::env::var("AIOS_INDEX_DB").unwrap_or_else(|_| "./.aios/index.db".to_string());
+    if let Some(parent) = std::path::Path::new(&db_path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let index_store = IndexStore::new(db_path).expect("initialize index store");
 
     let state = AppState {
         name: Arc::new("AI-OS Core Daemon".to_string()),
@@ -46,7 +56,7 @@ async fn main() {
             default_voice: "system-default".to_string(),
         })),
         active_speech_task: Arc::new(Mutex::new(None)),
-        index_scopes: Arc::new(Mutex::new(Vec::new())),
+        index_store: Arc::new(index_store),
     };
 
     let app = app_router(state);
@@ -168,7 +178,7 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
 }
 
 async fn list_index_scopes(State(state): State<AppState>) -> impl IntoResponse {
-    let scopes = state.index_scopes.lock().await.clone();
+    let scopes = state.index_store.list_scopes().unwrap_or_default();
     Json(IndexScopesResponse { scopes })
 }
 
@@ -181,14 +191,12 @@ async fn create_index_scope(
         return Json(IndexScopesResponse { scopes: Vec::new() });
     }
 
-    let mut scopes = state.index_scopes.lock().await;
-    if scopes
+    let existing = state.index_store.list_scopes().unwrap_or_default();
+    if existing
         .iter()
         .any(|s| s.path.eq_ignore_ascii_case(&path) || s.path == path)
     {
-        return Json(IndexScopesResponse {
-            scopes: scopes.clone(),
-        });
+        return Json(IndexScopesResponse { scopes: existing });
     }
 
     let scope = IndexScope {
@@ -197,7 +205,7 @@ async fn create_index_scope(
         enabled: req.enabled.unwrap_or(true),
         created_at: chrono::Utc::now().to_rfc3339(),
     };
-    scopes.push(scope.clone());
+    let _ = state.index_store.create_scope(&scope);
 
     let _ = state.events_tx.send(EventEnvelope {
         event: "index_scope_added".to_string(),
@@ -211,7 +219,7 @@ async fn create_index_scope(
     });
 
     Json(IndexScopesResponse {
-        scopes: scopes.clone(),
+        scopes: state.index_store.list_scopes().unwrap_or_default(),
     })
 }
 
@@ -219,10 +227,7 @@ async fn delete_index_scope(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let mut scopes = state.index_scopes.lock().await;
-    let before = scopes.len();
-    scopes.retain(|s| s.id != id);
-    let deleted = before != scopes.len();
+    let deleted = state.index_store.delete_scope(&id).unwrap_or(false);
 
     if deleted {
         let _ = state.events_tx.send(EventEnvelope {
@@ -243,18 +248,12 @@ async fn search_scopes(
     State(state): State<AppState>,
     Query(query): Query<SearchQuery>,
 ) -> impl IntoResponse {
-    let q = query.q.trim().to_lowercase();
-    let scopes = state.index_scopes.lock().await;
-
-    let results = scopes
-        .iter()
-        .filter(|s| s.path.to_lowercase().contains(&q))
-        .map(|s| SearchResultItem {
-            scope_id: s.id.clone(),
-            path: s.path.clone(),
-            match_reason: "scope_path_contains_query",
-        })
-        .collect::<Vec<_>>();
+    let q = query.q.trim().to_string();
+    let results = if q.is_empty() {
+        Vec::new()
+    } else {
+        state.index_store.search_scope_paths(&q).unwrap_or_default()
+    };
 
     Json(SearchResponse {
         query: query.q,
@@ -427,6 +426,11 @@ mod tests {
 
     fn test_state() -> AppState {
         let (events_tx, _) = broadcast::channel::<EventEnvelope>(32);
+        let db_file = tempfile::NamedTempFile::new().expect("temp db file");
+        let db_path = db_file.path().to_string_lossy().to_string();
+        drop(db_file);
+        let store = IndexStore::new(db_path).expect("init temp index store");
+
         AppState {
             name: Arc::new("AI-OS Core Daemon".to_string()),
             events_tx,
@@ -436,7 +440,7 @@ mod tests {
                 default_voice: "system-default".to_string(),
             })),
             active_speech_task: Arc::new(Mutex::new(None)),
-            index_scopes: Arc::new(Mutex::new(Vec::new())),
+            index_store: Arc::new(store),
         }
     }
 
