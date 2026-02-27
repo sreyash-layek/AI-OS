@@ -1,10 +1,13 @@
 const promptInput = document.getElementById("prompt") as HTMLInputElement;
 const sendBtn = document.getElementById("send") as HTMLButtonElement;
 const voiceBtn = document.getElementById("voice") as HTMLButtonElement;
+const stopBtn = document.getElementById("stop") as HTMLButtonElement;
 const responseEl = document.getElementById("response") as HTMLPreElement;
 const statusEl = document.getElementById("status") as HTMLDivElement;
+const speechStateEl = document.getElementById("speech-state") as HTMLDivElement;
 const toolPreviewEl = document.getElementById("tool-preview") as HTMLPreElement;
 const eventLogEl = document.getElementById("event-log") as HTMLPreElement;
+const autoSpeakEl = document.getElementById("auto-speak") as HTMLInputElement;
 
 async function sendMessage() {
   const message = promptInput.value.trim();
@@ -34,8 +37,33 @@ sendBtn.addEventListener("click", sendMessage);
 promptInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") sendMessage();
 });
-voiceBtn.addEventListener("click", () => {
-  responseEl.textContent = "Voice pipeline starts in Sprint 2.";
+voiceBtn.addEventListener("click", async () => {
+  const text = promptInput.value.trim() || "Hello from AI-OS voice pipeline.";
+
+  try {
+    const res = await fetch("/v1/speak", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice: "system-default" })
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      responseEl.textContent = `Speak rejected (mode=${data.mode})`;
+      return;
+    }
+    responseEl.textContent = `Speak queued (mode=${data.mode}, request_id=${data.request_id})`;
+  } catch (err) {
+    responseEl.textContent = `Speak request failed: ${String(err)}`;
+  }
+});
+
+stopBtn.addEventListener("click", async () => {
+  try {
+    await fetch("/v1/speak/stop", { method: "POST" });
+    responseEl.textContent = "Stop requested.";
+  } catch (err) {
+    responseEl.textContent = `Stop request failed: ${String(err)}`;
+  }
 });
 
 async function checkHealth() {
@@ -71,6 +99,21 @@ function connectEvents() {
         statusEl.textContent = "Daemon: ok (live)";
         statusEl.className = "status ok";
       }
+
+      if (payload.event === "speech_started") {
+        speechStateEl.textContent = "Speech: speaking";
+        speechStateEl.className = "status ok";
+        voiceBtn.disabled = true;
+        stopBtn.disabled = false;
+      }
+
+      if (payload.event === "speech_stopped") {
+        const reason = payload?.data?.reason ?? "unknown";
+        speechStateEl.textContent = `Speech: idle (${reason})`;
+        speechStateEl.className = "status";
+        voiceBtn.disabled = false;
+        stopBtn.disabled = true;
+      }
     } catch {
       pushEventLine(String(ev.data));
     }
@@ -82,6 +125,38 @@ function connectEvents() {
   };
 }
 
+async function loadVoiceConfig() {
+  try {
+    const [cfgRes, healthRes] = await Promise.all([
+      fetch("/v1/config/voice"),
+      fetch("/v1/config/voice/health")
+    ]);
+
+    const cfg = await cfgRes.json();
+    const health = await healthRes.json();
+
+    autoSpeakEl.checked = Boolean(cfg.auto_speak);
+    pushEventLine(`[voice] configured=${health.configured_provider}, effective=${health.effective_provider}, available=${health.available}`);
+  } catch {
+    // ignore for now
+  }
+}
+
+autoSpeakEl.addEventListener("change", async () => {
+  try {
+    await fetch("/v1/config/voice", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ auto_speak: autoSpeakEl.checked })
+    });
+    responseEl.textContent = `Auto-speak set to ${autoSpeakEl.checked}.`;
+  } catch (err) {
+    responseEl.textContent = `Failed to update voice config: ${String(err)}`;
+  }
+});
+
 checkHealth();
 setInterval(checkHealth, 5000);
 connectEvents();
+stopBtn.disabled = true;
+loadVoiceConfig();
