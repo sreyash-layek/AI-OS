@@ -15,7 +15,10 @@
         </header>
 
         <p class="subtitle">Ambient AI console — voice-first, local-first.</p>
-        <div id="speech-state" class="speech-line">Idle</div>
+        <div class="mode-row">
+          <div id="speech-state" class="speech-line">Idle</div>
+          <span id="conversation-mode" class="chip">Mode: idle</span>
+        </div>
 
         <section class="orb-stage">
           <button id="mic-orb" class="orb-btn" aria-label="Talk to AI-OS">
@@ -27,6 +30,13 @@
         <section class="quick-input">
           <input id="prompt" placeholder="Type optional context, then tap orb" />
           <pre id="response">Ready.</pre>
+        </section>
+
+        <section class="preview">
+          <h3>Conversation</h3>
+          <div id="conversation-log" class="conversation-log">
+            <div class="bubble assistant">Hi — tap the orb and I’ll respond.</div>
+          </div>
         </section>
 
         <details class="debug-drawer">

@@ -39,6 +39,12 @@ h1 { margin: 0; letter-spacing: .2px; }
 }
 .status.ok { color: #8affd7; border-color: #2ff0b37d; }
 .status.err { color: #ffafbf; border-color: #ff4f7e80; }
+.mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+}
 .speech-line {
   font-size: .92rem;
   color: #b7c4ea;
@@ -177,3 +183,30 @@ button#stop {
 .chip.u { border-color: #5db0ff66; color: #9ad1ff; }
 .chip.d { border-color: #ff7b8b66; color: #ffb7c2; }
 .chip.r { border-color: #c08cff66; color: #e2c4ff; }
+
+.conversation-log {
+  display: grid;
+  gap: .45rem;
+  max-height: 180px;
+  overflow: auto;
+  padding-right: .2rem;
+}
+
+.bubble {
+  border: 1px solid #ffffff1f;
+  border-radius: 12px;
+  padding: .55rem .7rem;
+  font-size: .86rem;
+}
+
+.bubble.user {
+  background: #121c35;
+  border-color: #5f86ff55;
+  justify-self: end;
+}
+
+.bubble.assistant {
+  background: #0e1f1c;
+  border-color: #52e2b155;
+  justify-self: start;
+}

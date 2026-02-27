@@ -5,6 +5,8 @@ const stopBtn = document.getElementById("stop") as HTMLButtonElement;
 const responseEl = document.getElementById("response") as HTMLPreElement;
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const speechStateEl = document.getElementById("speech-state") as HTMLDivElement;
+const conversationModeEl = document.getElementById("conversation-mode") as HTMLSpanElement;
+const conversationLogEl = document.getElementById("conversation-log") as HTMLDivElement;
 const micOrbBtn = document.getElementById("mic-orb") as HTMLButtonElement;
 const toolPreviewEl = document.getElementById("tool-preview") as HTMLPreElement;
 const eventLogEl = document.getElementById("event-log") as HTMLPreElement;
@@ -21,10 +23,27 @@ const batchStatsEl = document.getElementById("batch-stats") as HTMLPreElement;
 const batchFreshnessEl = document.getElementById("batch-freshness") as HTMLSpanElement;
 const batchCountsEl = document.getElementById("batch-counts") as HTMLDivElement;
 
+function setConversationMode(mode: "idle" | "listening" | "thinking" | "speaking") {
+  conversationModeEl.textContent = `Mode: ${mode}`;
+}
+
+function addConversationBubble(role: "user" | "assistant", text: string) {
+  const bubble = document.createElement("div");
+  bubble.className = `bubble ${role}`;
+  bubble.textContent = text;
+  conversationLogEl.prepend(bubble);
+
+  while (conversationLogEl.children.length > 8) {
+    conversationLogEl.removeChild(conversationLogEl.lastChild as ChildNode);
+  }
+}
+
 async function sendMessage() {
   const message = promptInput.value.trim();
   if (!message) return;
 
+  addConversationBubble("user", message);
+  setConversationMode("thinking");
   responseEl.textContent = "Thinking...";
 
   try {
@@ -35,13 +54,18 @@ async function sendMessage() {
     });
 
     const data = await res.json();
-    responseEl.textContent = data.reply ?? "No response";
+    const reply = data.reply ?? "No response";
+    responseEl.textContent = reply;
+    addConversationBubble("assistant", reply);
 
     if (data.tool_preview) {
       toolPreviewEl.textContent = JSON.stringify(data.tool_preview, null, 2);
     }
+
+    setConversationMode("idle");
   } catch (err) {
     responseEl.textContent = `Daemon offline. Start core-daemon first.\n\n${String(err)}`;
+    setConversationMode("idle");
   }
 }
 
@@ -136,8 +160,11 @@ micOrbBtn?.addEventListener("click", async () => {
   // Voice-first behavior: if already speaking, stop. Otherwise speak prompt (or default line).
   if (!stopBtn.disabled) {
     await fetch("/v1/speak/stop", { method: "POST" });
+    setConversationMode("idle");
     return;
   }
+
+  setConversationMode("listening");
 
   if (promptInput.value.trim()) {
     await sendMessage();
@@ -146,13 +173,14 @@ micOrbBtn?.addEventListener("click", async () => {
 
   const text = "Hey Sreyash, AI-OS is online and ready.";
   try {
+    addConversationBubble("assistant", text);
     await fetch("/v1/speak", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, voice: "system-default" })
     });
   } catch {
-    // no-op
+    setConversationMode("idle");
   }
 });
 
@@ -246,6 +274,7 @@ function connectEvents() {
         voiceBtn.disabled = true;
         stopBtn.disabled = false;
         micOrbBtn?.classList.add("live");
+        setConversationMode("speaking");
       }
 
       if (payload.event === "speech_stopped") {
@@ -255,6 +284,7 @@ function connectEvents() {
         voiceBtn.disabled = false;
         stopBtn.disabled = true;
         micOrbBtn?.classList.remove("live");
+        setConversationMode("idle");
       }
 
       if (payload.event === "index_scope_added" || payload.event === "index_scope_removed") {
@@ -332,6 +362,7 @@ autoSpeakEl.addEventListener("change", async () => {
   }
 });
 
+setConversationMode("idle");
 checkHealth();
 setInterval(checkHealth, 5000);
 setBatchCountChips();
