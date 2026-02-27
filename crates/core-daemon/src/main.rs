@@ -141,43 +141,108 @@ async fn start_scope_watcher(state: AppState, scope: IndexScope) {
 
             let mut current: HashMap<String, (i64, String)> = HashMap::new();
             for (path, size, mtime) in current_files {
-                let is_update = previous
-                    .get(&path)
-                    .map(|(prev_size, prev_mtime)| prev_size != &size || prev_mtime != &mtime)
-                    .unwrap_or(true);
-
-                if is_update {
-                    let _ = store.upsert_file_metadata(&scope_id, &path, Some(size), Some(&mtime));
-                    let _ = tx.send(EventEnvelope {
-                        event: "index_event_applied".to_string(),
-                        at: chrono::Utc::now().to_rfc3339(),
-                        source: "core-daemon",
-                        data: serde_json::json!({
-                            "scope_id": scope_id.clone(),
-                            "path": path,
-                            "event_type": if previous.contains_key(&path) { "update" } else { "create" }
-                        }),
-                    });
-                }
-
                 current.insert(path, (size, mtime));
             }
 
-            let current_paths = current.keys().cloned().collect::<HashSet<_>>();
-            for old_path in previous.keys() {
-                if !current_paths.contains(old_path) {
-                    let _ = store.delete_file_metadata(old_path);
-                    let _ = tx.send(EventEnvelope {
-                        event: "index_event_applied".to_string(),
-                        at: chrono::Utc::now().to_rfc3339(),
-                        source: "core-daemon",
-                        data: serde_json::json!({
-                            "scope_id": scope_id.clone(),
-                            "path": old_path,
-                            "event_type": "delete"
-                        }),
-                    });
+            let mut creates: Vec<(String, i64, String)> = Vec::new();
+            let mut updates: Vec<(String, i64, String)> = Vec::new();
+            let mut deletes: Vec<String> = Vec::new();
+
+            for (path, (size, mtime)) in &current {
+                match previous.get(path) {
+                    None => creates.push((path.clone(), *size, mtime.clone())),
+                    Some((prev_size, prev_mtime)) if prev_size != size || prev_mtime != mtime => {
+                        updates.push((path.clone(), *size, mtime.clone()))
+                    }
+                    _ => {}
                 }
+            }
+
+            for old_path in previous.keys() {
+                if !current.contains_key(old_path) {
+                    deletes.push(old_path.clone());
+                }
+            }
+
+            // Heuristic rename detection: same (size, mtime) appears as delete+create in same poll batch.
+            let mut deleted_by_sig: HashMap<(i64, String), Vec<String>> = HashMap::new();
+            for old_path in &deletes {
+                if let Some((size, mtime)) = previous.get(old_path) {
+                    deleted_by_sig
+                        .entry((*size, mtime.clone()))
+                        .or_default()
+                        .push(old_path.clone());
+                }
+            }
+
+            let mut renames: Vec<(String, String, i64, String)> = Vec::new();
+            let mut remaining_creates: Vec<(String, i64, String)> = Vec::new();
+            for (new_path, size, mtime) in creates {
+                let sig = (size, mtime.clone());
+                if let Some(candidates) = deleted_by_sig.get_mut(&sig) {
+                    if let Some(old_path) = candidates.pop() {
+                        renames.push((old_path, new_path, size, mtime));
+                        continue;
+                    }
+                }
+                remaining_creates.push((new_path, size, mtime));
+            }
+
+            let renamed_from = renames
+                .iter()
+                .map(|(old_path, _, _, _)| old_path.clone())
+                .collect::<HashSet<_>>();
+            let remaining_deletes = deletes
+                .into_iter()
+                .filter(|path| !renamed_from.contains(path))
+                .collect::<Vec<_>>();
+
+            for (old_path, new_path, size, mtime) in &renames {
+                let _ = store.rename_file_metadata(
+                    old_path,
+                    new_path,
+                    &scope_id,
+                    Some(*size),
+                    Some(mtime),
+                );
+            }
+            for (path, size, mtime) in &remaining_creates {
+                let _ = store.upsert_file_metadata(&scope_id, path, Some(*size), Some(mtime));
+            }
+            for (path, size, mtime) in &updates {
+                let _ = store.upsert_file_metadata(&scope_id, path, Some(*size), Some(mtime));
+            }
+            for old_path in &remaining_deletes {
+                let _ = store.delete_file_metadata(old_path);
+            }
+
+            // Debounced batch event (single websocket message per polling cycle)
+            let total_changes =
+                renames.len() + remaining_creates.len() + updates.len() + remaining_deletes.len();
+            if total_changes > 0 {
+                let sample_paths = remaining_creates
+                    .iter()
+                    .map(|(p, _, _)| p.clone())
+                    .chain(updates.iter().map(|(p, _, _)| p.clone()))
+                    .chain(remaining_deletes.iter().cloned())
+                    .take(10)
+                    .collect::<Vec<_>>();
+
+                let _ = tx.send(EventEnvelope {
+                    event: "index_batch_applied".to_string(),
+                    at: chrono::Utc::now().to_rfc3339(),
+                    source: "core-daemon",
+                    data: serde_json::json!({
+                        "scope_id": scope_id.clone(),
+                        "counts": {
+                            "create": remaining_creates.len(),
+                            "update": updates.len(),
+                            "delete": remaining_deletes.len(),
+                            "rename": renames.len()
+                        },
+                        "sample_paths": sample_paths,
+                    }),
+                });
             }
 
             previous = current;
