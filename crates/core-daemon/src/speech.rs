@@ -1,4 +1,4 @@
-use crate::types::{EventEnvelope, VoiceSettings};
+use core_daemon::types::{EventEnvelope, VoiceSettings};
 use std::process::Command;
 use tokio::time::{sleep, Duration};
 

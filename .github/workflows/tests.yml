@@ -1,0 +1,20 @@
+name: Unit Tests
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+
+jobs:
+  rust-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust check
+        run: cargo check -p core-daemon
+
+      - name: Run core-daemon unit tests
+        run: cargo test -p core-daemon --lib -- --nocapture

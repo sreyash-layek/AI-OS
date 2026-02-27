@@ -1,4 +1,4 @@
-name: CI
+name: Coverage
 
 on:
   pull_request:
@@ -7,23 +7,14 @@ on:
     branches: [develop]
 
 jobs:
-  lint-test-coverage:
+  rust-coverage:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-
-      - name: Rust check
-        run: cargo check -p core-daemon
-
-      - name: Rust unit tests
-        run: cargo test -p core-daemon --lib -- --nocapture
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Enforce 100% unit-test coverage (library target)
+      - name: Enforce 100% line coverage (core-daemon lib)
         run: cargo llvm-cov -p core-daemon --lib --fail-under-lines 100 --summary-only

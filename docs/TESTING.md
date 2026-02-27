@@ -19,11 +19,15 @@ cargo test -p core-daemon -- --nocapture
 docker compose exec dev bash -lc "cargo test -p core-daemon -- --nocapture"
 ```
 
-## CI
-GitHub Actions now runs:
-- `cargo check -p core-daemon`
-- `cargo test -p core-daemon --lib -- --nocapture`
-- `cargo llvm-cov -p core-daemon --lib --fail-under-lines 100 --summary-only`
+## GitHub Actions
+Two separate workflows are configured:
+
+1. **Unit Tests** (`.github/workflows/tests.yml`)
+   - `cargo check -p core-daemon`
+   - `cargo test -p core-daemon --lib -- --nocapture`
+
+2. **Coverage** (`.github/workflows/coverage.yml`)
+   - `cargo llvm-cov -p core-daemon --lib --fail-under-lines 100 --summary-only`
 
 > Coverage gate is currently enforced at **100% for the `core-daemon` library target** (`src/lib.rs`).
 > The binary runtime (`src/main.rs`) is not included in this gate yet.

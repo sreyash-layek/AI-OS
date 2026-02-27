@@ -65,4 +65,17 @@ mod tests {
         assert_eq!(preview.risk_tier, 0);
         assert!(!preview.requires_confirmation);
     }
+
+    #[test]
+    fn classification_is_case_insensitive() {
+        let preview = classify_tool_preview("OPEN THE DOCUMENTS");
+        assert_eq!(preview.name, "open_app_or_file");
+    }
+
+    #[test]
+    fn open_takes_precedence_when_multiple_keywords_exist() {
+        let preview = classify_tool_preview("open and delete this file");
+        assert_eq!(preview.name, "open_app_or_file");
+        assert_eq!(preview.risk_tier, 1);
+    }
 }
