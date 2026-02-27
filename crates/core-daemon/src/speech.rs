@@ -124,6 +124,14 @@ pub async fn run_mock_speech(request_id: String, text: String, voice: String) ->
 
 pub async fn run_system_speech(request_id: String, text: String, voice: String) -> EventEnvelope {
     let result = run_system_command(&text, &voice);
+    build_system_stop_event(request_id, voice, result)
+}
+
+fn build_system_stop_event(
+    request_id: String,
+    voice: String,
+    result: Result<(), String>,
+) -> EventEnvelope {
     let (reason, ok): (String, bool) = match result {
         Ok(()) => ("system_complete".to_string(), true),
         Err(err) => (err, false),
@@ -346,5 +354,31 @@ mod tests {
         assert_eq!(event.data["provider"], "system");
         assert_eq!(event.data["voice"], "system-default");
         assert!(event.data["reason"].is_string());
+    }
+
+    #[test]
+    fn build_system_stop_event_maps_success_result() {
+        let event = build_system_stop_event(
+            "req-success".to_string(),
+            "voice-a".to_string(),
+            Ok(()),
+        );
+
+        assert_eq!(event.data["request_id"], "req-success");
+        assert_eq!(event.data["ok"], true);
+        assert_eq!(event.data["reason"], "system_complete");
+    }
+
+    #[test]
+    fn build_system_stop_event_maps_error_result() {
+        let event = build_system_stop_event(
+            "req-error".to_string(),
+            "voice-b".to_string(),
+            Err("custom_error".to_string()),
+        );
+
+        assert_eq!(event.data["request_id"], "req-error");
+        assert_eq!(event.data["ok"], false);
+        assert_eq!(event.data["reason"], "custom_error");
     }
 }
