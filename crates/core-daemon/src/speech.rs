@@ -14,10 +14,21 @@ pub fn detect_effective_provider(settings: &VoiceSettings) -> (String, bool, Str
 }
 
 fn detect_system_provider_for_os(os: &str) -> (String, bool, String) {
+    detect_system_provider_with(os, |cmd| command_exists_for_os(os, cmd))
+}
+
+fn detect_system_provider_with<F>(os: &str, command_exists: F) -> (String, bool, String)
+where
+    F: Fn(&str) -> bool,
+{
     match os {
         "linux" => {
-            if command_exists_for_os(os, "spd-say") {
-                ("system".to_string(), true, "linux provider: spd-say".to_string())
+            if command_exists("spd-say") {
+                (
+                    "system".to_string(),
+                    true,
+                    "linux provider: spd-say".to_string(),
+                )
             } else {
                 (
                     "mock".to_string(),
@@ -27,8 +38,12 @@ fn detect_system_provider_for_os(os: &str) -> (String, bool, String) {
             }
         }
         "macos" => {
-            if command_exists_for_os(os, "say") {
-                ("system".to_string(), true, "macOS provider: say".to_string())
+            if command_exists("say") {
+                (
+                    "system".to_string(),
+                    true,
+                    "macOS provider: say".to_string(),
+                )
             } else {
                 (
                     "mock".to_string(),
@@ -38,7 +53,7 @@ fn detect_system_provider_for_os(os: &str) -> (String, bool, String) {
             }
         }
         "windows" => {
-            if command_exists_for_os(os, "powershell") {
+            if command_exists("powershell") {
                 (
                     "system".to_string(),
                     true,
@@ -67,21 +82,21 @@ fn command_exists_for_os(os: &str, cmd: &str) -> bool {
     }
 }
 
+fn status_ok(status: std::io::Result<ExitStatus>) -> bool {
+    status.map(|s| s.success()).unwrap_or(false)
+}
+
 fn command_exists_windows(cmd: &str) -> bool {
-    Command::new("where")
-        .arg(cmd)
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    status_ok(Command::new("where").arg(cmd).status())
 }
 
 fn command_exists_shell(cmd: &str) -> bool {
-    Command::new("sh")
-        .arg("-lc")
-        .arg(format!("command -v {} >/dev/null 2>&1", cmd))
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    status_ok(
+        Command::new("sh")
+            .arg("-lc")
+            .arg(format!("command -v {} >/dev/null 2>&1", cmd))
+            .status(),
+    )
 }
 
 pub async fn run_mock_speech(request_id: String, text: String, voice: String) -> EventEnvelope {
@@ -134,9 +149,9 @@ fn build_system_stop_event(
 
 fn run_system_command_for_os(os: &str, text: &str, voice: &str) -> Result<(), String> {
     match os {
-        "linux" => run_linux_system_command_with(text, |arg| {
-            Command::new("spd-say").arg(arg).status()
-        }),
+        "linux" => {
+            run_linux_system_command_with(text, |arg| Command::new("spd-say").arg(arg).status())
+        }
         "macos" => run_macos_system_command_with(text, voice, |t, v| {
             Command::new("say").arg("-v").arg(v).arg(t).status()
         }),
@@ -227,31 +242,24 @@ mod tests {
 
     #[test]
     fn detect_provider_all_os_paths_with_injected_presence() {
-        // Directly execute branch mapping logic deterministically
-        let linux_yes = if true {
-            ("system".to_string(), true, "linux provider: spd-say".to_string())
-        } else {
-            unreachable!()
-        };
+        let linux_yes = detect_system_provider_with("linux", |cmd| cmd == "spd-say");
+        let linux_no = detect_system_provider_with("linux", |_cmd| false);
         assert_eq!(linux_yes.0, "system");
+        assert_eq!(linux_no.0, "mock");
 
-        let mac_yes = if true {
-            ("system".to_string(), true, "macOS provider: say".to_string())
-        } else {
-            unreachable!()
-        };
+        let mac_yes = detect_system_provider_with("macos", |cmd| cmd == "say");
+        let mac_no = detect_system_provider_with("macos", |_cmd| false);
         assert_eq!(mac_yes.0, "system");
+        assert_eq!(mac_no.0, "mock");
 
-        let win_yes = if true {
-            (
-                "system".to_string(),
-                true,
-                "windows provider: powershell SpeechSynthesizer".to_string(),
-            )
-        } else {
-            unreachable!()
-        };
+        let win_yes = detect_system_provider_with("windows", |cmd| cmd == "powershell");
+        let win_no = detect_system_provider_with("windows", |_cmd| false);
         assert_eq!(win_yes.0, "system");
+        assert_eq!(win_no.0, "mock");
+
+        let unknown = detect_system_provider_with("unknown", |_cmd| true);
+        assert_eq!(unknown.0, "mock");
+        assert!(!unknown.1);
     }
 
     #[test]
@@ -260,6 +268,20 @@ mod tests {
         let _ = command_exists_for_os("linux", "sh");
         let _ = command_exists_windows("definitely-not-real");
         let _ = command_exists_shell("sh");
+    }
+
+    #[test]
+    fn status_ok_maps_ok_and_err_paths() {
+        assert!(status_ok(
+            Command::new("sh").arg("-lc").arg("exit 0").status()
+        ));
+        assert!(!status_ok(
+            Command::new("sh").arg("-lc").arg("exit 3").status()
+        ));
+        assert!(!status_ok(Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "missing",
+        ))));
     }
 
     #[test]
