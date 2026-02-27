@@ -1,24 +1,41 @@
 # DEVELOPMENT SETUP
 
-## Prerequisites
+## Preferred: Docker Dev Container
+
+AI-OS uses a dev container for consistent setup across Windows/macOS/Linux.
+
+### Requirements
+- Docker Desktop (or Docker Engine)
+- VS Code (optional, for Dev Containers UX)
+
+### Start dev container
+```bash
+docker compose up -d --build
+docker compose exec dev bash
+```
+
+Inside container:
+```bash
+cargo check -p core-daemon
+```
+
+## Local (without Docker)
+### Prerequisites
 - Git
 - Rust (stable)
 - Node.js (LTS)
 - pnpm or npm
 - Tauri prerequisites for your OS
 
-## Planned Local Run
-
+## Current Sprint Commands
 ```bash
-# 1) Clone
-# 2) Install deps
-# 3) Run daemon
-# 4) Run desktop app
+# from repo root
+cargo run -p core-daemon
 ```
 
-Detailed runnable commands will be added in Sprint 1 implementation.
-
-## Guiding Rules
-- Local-first by default
-- No paid API required for baseline features
-- Keep all changes documented in PRs
+## Engineering Guidelines (latest)
+- Keep features behind documented contracts
+- Use typed tool schemas for all AI actions
+- Prefer local-first implementations
+- Add/Update docs in same PR
+- Open PRs against `develop` only
