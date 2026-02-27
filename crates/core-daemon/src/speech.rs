@@ -231,6 +231,20 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn detect_effective_provider_system_executes_linux_resolution_path() {
+        let settings = VoiceSettings {
+            provider: "system".to_string(),
+            auto_speak: false,
+            default_voice: "system-default".to_string(),
+        };
+
+        let (effective, _available, detail) = detect_effective_provider(&settings);
+        assert!(effective == "system" || effective == "mock");
+        assert!(!detail.is_empty());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn linux_provider_falls_back_when_command_missing() {
         let (effective, available, detail) = detect_linux_provider_with(|_| false);
         assert_eq!(effective, "mock");
@@ -265,6 +279,22 @@ mod tests {
         assert_eq!(result.unwrap_err(), "linux_spd_say_missing");
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn command_exists_linux_true_and_false_paths() {
+        assert!(command_exists_linux("sh"));
+        assert!(!command_exists_linux("definitely-not-a-real-command-xyz"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn run_system_command_is_wired_to_linux_runner() {
+        let result = run_system_command("hello", "ignored");
+        if let Err(err) = result {
+            assert!(err == "linux_spd_say_missing" || err == "linux_spd_say_failed");
+        }
+    }
+
     #[tokio::test]
     async fn mock_speech_emits_stopped_event_shape() {
         let event = run_mock_speech(
@@ -280,6 +310,26 @@ mod tests {
         assert_eq!(event.data["provider"], "mock");
         assert_eq!(event.data["voice"], "system-default");
         assert_eq!(event.data["reason"], "mock_complete");
+    }
+
+    #[tokio::test]
+    async fn mock_speech_duration_bounds_are_enforced() {
+        let short = run_mock_speech(
+            "req-short".to_string(),
+            "a".to_string(),
+            "system-default".to_string(),
+        )
+        .await;
+        assert_eq!(short.data["duration_ms"], 1200);
+
+        let long_text = "x".repeat(1000);
+        let long = run_mock_speech(
+            "req-long".to_string(),
+            long_text,
+            "system-default".to_string(),
+        )
+        .await;
+        assert_eq!(long.data["duration_ms"], 9000);
     }
 
     #[tokio::test]
