@@ -6,7 +6,13 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+    path::Path,
+    sync::Arc,
+    time::UNIX_EPOCH,
+};
 use tokio::{
     sync::{broadcast, Mutex},
     task::JoinHandle,
@@ -34,6 +40,7 @@ struct AppState {
     voice_settings: Arc<Mutex<VoiceSettings>>,
     active_speech_task: Arc<Mutex<Option<JoinHandle<()>>>>,
     index_store: Arc<IndexStore>,
+    watcher_tasks: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
 }
 
 #[tokio::main]
@@ -58,7 +65,10 @@ async fn main() {
         })),
         active_speech_task: Arc::new(Mutex::new(None)),
         index_store: Arc::new(index_store),
+        watcher_tasks: Arc::new(Mutex::new(HashMap::new())),
     };
+
+    start_watchers_for_existing_scopes(&state).await;
 
     let app = app_router(state);
 
@@ -94,6 +104,131 @@ fn app_router(state: AppState) -> Router {
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state)
+}
+
+async fn start_watchers_for_existing_scopes(state: &AppState) {
+    let scopes = state.index_store.list_scopes().unwrap_or_default();
+    for scope in scopes.into_iter().filter(|s| s.enabled) {
+        start_scope_watcher(state.clone(), scope).await;
+    }
+}
+
+async fn start_scope_watcher(state: AppState, scope: IndexScope) {
+    let mut tasks = state.watcher_tasks.lock().await;
+    if tasks.contains_key(&scope.id) {
+        return;
+    }
+
+    let scope_id = scope.id.clone();
+    let scope_path = scope.path.clone();
+    let tx = state.events_tx.clone();
+    let store = state.index_store.clone();
+
+    let handle = tokio::spawn(async move {
+        let mut previous: HashMap<String, (i64, String)> = HashMap::new();
+
+        loop {
+            let scan = tokio::task::spawn_blocking({
+                let root = scope_path.clone();
+                move || scan_scope_files(&root)
+            })
+            .await;
+
+            let Ok(current_files) = scan else {
+                sleep(Duration::from_secs(5)).await;
+                continue;
+            };
+
+            let mut current: HashMap<String, (i64, String)> = HashMap::new();
+            for (path, size, mtime) in current_files {
+                let is_update = previous
+                    .get(&path)
+                    .map(|(prev_size, prev_mtime)| prev_size != &size || prev_mtime != &mtime)
+                    .unwrap_or(true);
+
+                if is_update {
+                    let _ = store.upsert_file_metadata(&scope_id, &path, Some(size), Some(&mtime));
+                    let _ = tx.send(EventEnvelope {
+                        event: "index_event_applied".to_string(),
+                        at: chrono::Utc::now().to_rfc3339(),
+                        source: "core-daemon",
+                        data: serde_json::json!({
+                            "scope_id": scope_id.clone(),
+                            "path": path,
+                            "event_type": if previous.contains_key(&path) { "update" } else { "create" }
+                        }),
+                    });
+                }
+
+                current.insert(path, (size, mtime));
+            }
+
+            let current_paths = current.keys().cloned().collect::<HashSet<_>>();
+            for old_path in previous.keys() {
+                if !current_paths.contains(old_path) {
+                    let _ = store.delete_file_metadata(old_path);
+                    let _ = tx.send(EventEnvelope {
+                        event: "index_event_applied".to_string(),
+                        at: chrono::Utc::now().to_rfc3339(),
+                        source: "core-daemon",
+                        data: serde_json::json!({
+                            "scope_id": scope_id.clone(),
+                            "path": old_path,
+                            "event_type": "delete"
+                        }),
+                    });
+                }
+            }
+
+            previous = current;
+            sleep(Duration::from_secs(5)).await;
+        }
+    });
+
+    tasks.insert(scope.id, handle);
+}
+
+async fn stop_scope_watcher(state: &AppState, scope_id: &str) {
+    if let Some(handle) = state.watcher_tasks.lock().await.remove(scope_id) {
+        handle.abort();
+    }
+}
+
+fn scan_scope_files(root: &str) -> Vec<(String, i64, String)> {
+    let mut out = Vec::new();
+    let root_path = Path::new(root);
+    if !root_path.exists() {
+        return out;
+    }
+
+    fn walk(dir: &Path, out: &mut Vec<(String, i64, String)>) {
+        let Ok(read_dir) = std::fs::read_dir(dir) else {
+            return;
+        };
+
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            let Ok(meta) = entry.metadata() else {
+                continue;
+            };
+
+            if meta.is_dir() {
+                walk(&path, out);
+            } else if meta.is_file() {
+                let size = meta.len() as i64;
+                let mtime = meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs().to_string())
+                    .unwrap_or_else(|| "0".to_string());
+                out.push((path.to_string_lossy().to_string(), size, mtime));
+            }
+        }
+    }
+
+    walk(root_path, &mut out);
+    out
 }
 
 async fn health(State(state): State<AppState>) -> impl IntoResponse {
@@ -208,6 +343,9 @@ async fn create_index_scope(
         created_at: chrono::Utc::now().to_rfc3339(),
     };
     let _ = state.index_store.create_scope(&scope);
+    if scope.enabled {
+        start_scope_watcher(state.clone(), scope.clone()).await;
+    }
 
     let _ = state.events_tx.send(EventEnvelope {
         event: "index_scope_added".to_string(),
@@ -232,6 +370,8 @@ async fn delete_index_scope(
     let deleted = state.index_store.delete_scope(&id).unwrap_or(false);
 
     if deleted {
+        stop_scope_watcher(&state, &id).await;
+
         let _ = state.events_tx.send(EventEnvelope {
             event: "index_scope_removed".to_string(),
             at: chrono::Utc::now().to_rfc3339(),
@@ -492,6 +632,7 @@ mod tests {
             })),
             active_speech_task: Arc::new(Mutex::new(None)),
             index_store: Arc::new(store),
+            watcher_tasks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -699,13 +840,44 @@ mod tests {
         let searched = body_json(search_resp).await;
         assert_eq!(searched["results"].as_array().unwrap().len(), 1);
 
+        let ingest_rename_resp = app
+            .clone()
+            .oneshot(post_json(
+                "/v1/index/events",
+                json!({
+                    "scope_id": created["scopes"][0]["id"].as_str().unwrap(),
+                    "path": "C:/Users/sreya/Documents/notes/todo-renamed.md",
+                    "event_type": "rename",
+                    "renamed_from": "C:/Users/sreya/Documents/notes/todo.md"
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(ingest_rename_resp.status(), 200);
+        let ingest_rename_json = body_json(ingest_rename_resp).await;
+        assert_eq!(ingest_rename_json["ok"], true);
+
+        let renamed_search_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/search?q=renamed")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(renamed_search_resp.status(), 200);
+        let renamed_search_json = body_json(renamed_search_resp).await;
+        assert_eq!(renamed_search_json["results"].as_array().unwrap().len(), 1);
+
         let ingest_delete_resp = app
             .clone()
             .oneshot(post_json(
                 "/v1/index/events",
                 json!({
                     "scope_id": created["scopes"][0]["id"].as_str().unwrap(),
-                    "path": "C:/Users/sreya/Documents/notes/todo.md",
+                    "path": "C:/Users/sreya/Documents/notes/todo-renamed.md",
                     "event_type": "delete"
                 }),
             ))

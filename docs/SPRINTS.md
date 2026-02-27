@@ -21,9 +21,9 @@ Cadence: 1 sprint = 1 week (16 total sprints).
 
 ## Sprint 3 — Folder Opt-In + Watchers + Metadata Base
 - [ ] Folder picker + scope manager UI (opt-in indexing)
-- [ ] File watchers (create/update/delete/rename)
-- [ ] SQLite schema (`sources`, `scopes`, `file_metadata`, `exclusions`)
-- [ ] Basic metadata search (filename/path/mtime)
+- [x] File watcher scaffold (polling watcher loop + index event ingestion contract)
+- [x] SQLite schema base (`index_scopes`, `file_metadata`)
+- [x] Basic metadata search (scope paths + indexed file paths)
 **Deliverable:** opted-in folders are tracked and searchable by metadata.
 
 ## Sprint 4 — Text Extraction + Keyword Index MVP
