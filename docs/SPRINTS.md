@@ -20,7 +20,7 @@ Cadence: 1 sprint = 1 week (16 total sprints).
 **Deliverable:** assistant speaks reliably on Windows/macOS.
 
 ## Sprint 3 — Folder Opt-In + Watchers + Metadata Base
-- [ ] Folder picker + scope manager UI (opt-in indexing)
+- [x] Folder/scope manager UI (opt-in indexing + pause/resume + remove)
 - [x] File watcher scaffold (polling watcher loop + index event ingestion contract)
 - [x] SQLite schema base (`index_scopes`, `file_metadata`)
 - [x] Basic metadata search (scope paths + indexed file paths)
