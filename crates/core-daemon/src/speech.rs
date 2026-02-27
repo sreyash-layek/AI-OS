@@ -298,9 +298,12 @@ mod tests {
     #[test]
     fn run_system_command_is_wired_to_linux_runner() {
         let result = run_system_command("hello", "ignored");
-        if let Err(err) = result {
-            assert!(err == "linux_spd_say_missing" || err == "linux_spd_say_failed");
-        }
+        let ok = result.is_ok();
+        let expected_err = matches!(
+            result.as_deref(),
+            Err("linux_spd_say_missing") | Err("linux_spd_say_failed")
+        );
+        assert!(ok || expected_err);
     }
 
     #[tokio::test]
