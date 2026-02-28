@@ -27,10 +27,10 @@ Cadence: 1 sprint = 1 week (16 total sprints).
 **Deliverable:** opted-in folders are tracked and searchable by metadata.
 
 ## Sprint 4 — Text Extraction + Keyword Index MVP
-- [ ] Text extraction for `.txt`, `.md`, `.pdf`
-- [ ] Tantivy keyword index (title/path/content)
-- [ ] Snippet generation + highlighting
-- [ ] Search results UI with previews
+- [x] Text extraction for `.txt`, `.md`, `.pdf`
+- [x] Tantivy keyword index (title/path/content)
+- [x] Snippet generation + highlighting
+- [x] Search results UI with previews
 **Deliverable:** fast keyword search across file contents.
 
 ## Sprint 5 — Semantic Indexing + Hybrid Search

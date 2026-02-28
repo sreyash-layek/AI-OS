@@ -1,4 +1,4 @@
-# INDEXING API (Sprint 3)
+# INDEXING API (Sprint 3–4)
 
 ## Scopes
 
@@ -54,10 +54,26 @@ Body:
 
 ## Search
 
-### Metadata search
+### Hybrid search (keyword-first, metadata fallback)
 `GET /v1/search?q=notes`
 
-Returns scope path matches + file metadata path matches.
+Returns:
+- keyword hits over extracted content/title/path for supported files (`.txt`, `.md`, `.pdf`)
+- snippet previews (`snippet_html`) for content matches
+- relevance score (`score`) for keyword hits
+- metadata path matches when no keyword hits are available
+
+Example result item:
+```json
+{
+  "scope_id": "...",
+  "path": "C:/Users/.../notes.md",
+  "match_reason": "keyword_content_match",
+  "title": "notes.md",
+  "snippet_html": "...<b>notes</b>...",
+  "score": 12.34
+}
+```
 
 ---
 
