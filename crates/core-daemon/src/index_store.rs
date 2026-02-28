@@ -190,6 +190,9 @@ impl IndexStore {
                     scope_id: row.get(0)?,
                     path: row.get(1)?,
                     match_reason: "scope_path_contains_query",
+                    title: None,
+                    snippet_html: None,
+                    score: None,
                 })
             })
             .map_err(|e| format!("db_query_scope_search_failed: {e}"))?;
@@ -210,6 +213,9 @@ impl IndexStore {
                     scope_id: row.get(0)?,
                     path: row.get(1)?,
                     match_reason: "file_path_contains_query",
+                    title: None,
+                    snippet_html: None,
+                    score: None,
                 })
             })
             .map_err(|e| format!("db_query_file_search_failed: {e}"))?;

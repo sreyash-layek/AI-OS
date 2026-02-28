@@ -14,6 +14,8 @@ uuid = { version = "1", features = ["v4"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
+tantivy = "0.22"
+pdf-extract = "0.7"
 
 [dev-dependencies]
 http-body-util = "0.1"

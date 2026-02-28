@@ -115,6 +115,9 @@ pub struct SearchResultItem {
     pub scope_id: String,
     pub path: String,
     pub match_reason: &'static str,
+    pub title: Option<String>,
+    pub snippet_html: Option<String>,
+    pub score: Option<f32>,
 }
 
 #[derive(Debug, Serialize)]
