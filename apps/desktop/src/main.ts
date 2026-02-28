@@ -159,7 +159,18 @@ async function runSearch() {
       return;
     }
 
-    searchResultsEl.textContent = JSON.stringify(results, null, 2);
+    const rendered = (results as Array<any>)
+      .map((r, i) => {
+        const title = r.title ? `\n  title: ${r.title}` : "";
+        const snippet = r.snippet_html
+          ? `\n  snippet: ${String(r.snippet_html).replace(/<[^>]+>/g, "")}`
+          : "";
+        const score = typeof r.score === "number" ? `\n  score: ${r.score.toFixed(2)}` : "";
+        return `${i + 1}. ${r.path}${title}${snippet}${score}\n  reason: ${r.match_reason}`;
+      })
+      .join("\n\n");
+
+    searchResultsEl.textContent = rendered;
   } catch (err) {
     showToast(`Search failed: ${String(err)}`);
   }
