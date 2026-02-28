@@ -8,33 +8,94 @@
   </head>
   <body>
     <main class="shell">
-      <section class="orb-wrap">
-        <div class="orb" aria-label="AI listening orb"></div>
-      </section>
-      <section class="panel">
-        <h1>AI-OS</h1>
-        <p class="subtitle">Local-first AI launcher — Sprint 1 shell</p>
-        <div id="status" class="status checking">Checking daemon...</div>
-        <div id="speech-state" class="status">Speech: idle</div>
-        <input id="prompt" placeholder="Try: Open downloads and summarize latest PDF" />
-        <div class="actions">
-          <button id="send">Send</button>
-          <button id="voice" class="ghost">Speak</button>
-          <button id="stop" class="ghost">Stop</button>
+      <div id="toast" class="toast"></div>
+      <section class="panel voice-first">
+        <header class="topbar">
+          <h1>AI-OS</h1>
+          <div id="status" class="status checking">Checking daemon...</div>
+        </header>
+
+        <p class="subtitle">Ambient AI console — voice-first, local-first.</p>
+        <div class="mode-row">
+          <div id="speech-state" class="speech-line">Idle</div>
+          <span id="conversation-mode" class="chip">Mode: idle</span>
         </div>
-        <label class="toggle-row">
-          <input id="auto-speak" type="checkbox" />
-          Auto-speak assistant replies
-        </label>
-        <pre id="response">Ready.</pre>
-        <section class="preview">
-          <h3>Action Preview</h3>
-          <pre id="tool-preview">Waiting for tool preview...</pre>
+
+        <section class="orb-stage">
+          <button id="mic-orb" class="orb-btn" aria-label="Talk to AI-OS">
+            <span class="orb"></span>
+            <span class="orb-caption">Tap to talk</span>
+          </button>
         </section>
-        <section class="preview">
-          <h3>Live Events</h3>
-          <pre id="event-log">Waiting for events...</pre>
+
+        <section class="quick-input">
+          <input id="prompt" placeholder="Type optional context, then tap orb" />
+          <pre id="response">Ready.</pre>
         </section>
+
+        <section class="preview">
+          <h3>Conversation</h3>
+          <div id="conversation-log" class="conversation-log">
+            <div class="bubble assistant">Hi — tap the orb and I’ll respond.</div>
+          </div>
+        </section>
+
+        <details class="debug-drawer">
+          <summary>Developer Drawer</summary>
+
+          <div class="actions">
+            <button id="send">Send</button>
+            <button id="voice" class="ghost">Speak</button>
+            <button id="stop" class="ghost">Stop</button>
+          </div>
+
+          <label class="toggle-row">
+            <input id="auto-speak" type="checkbox" />
+            Auto-speak assistant replies
+          </label>
+
+          <section class="preview">
+            <h3>Action Preview</h3>
+            <pre id="tool-preview">Waiting for tool preview...</pre>
+          </section>
+
+          <section class="preview">
+            <h3>Indexed Scopes</h3>
+            <div class="actions">
+              <input id="scope-path" placeholder="C:/Users/sreya/Documents" />
+              <button id="add-scope">Add Scope</button>
+            </div>
+            <div id="scopes-list" class="scopes-list">No scopes yet.</div>
+          </section>
+
+          <section class="preview">
+            <h3>Metadata Search</h3>
+            <div class="actions">
+              <input id="search-query" placeholder="Search scope or file path" />
+              <button id="search-btn" class="ghost">Search</button>
+            </div>
+            <pre id="search-results">No search yet.</pre>
+          </section>
+
+          <section class="preview">
+            <h3>
+              Watcher Batch Stats
+              <span id="batch-freshness" class="chip">never</span>
+            </h3>
+            <div id="batch-counts" class="batch-counts">
+              <span class="chip c">C:0</span>
+              <span class="chip u">U:0</span>
+              <span class="chip d">D:0</span>
+              <span class="chip r">R:0</span>
+            </div>
+            <pre id="batch-stats">No watcher batches yet.</pre>
+          </section>
+
+          <section class="preview">
+            <h3>Live Events</h3>
+            <pre id="event-log">Waiting for events...</pre>
+          </section>
+        </details>
       </section>
     </main>
     <script type="module" src="./src/main.ts"></script>

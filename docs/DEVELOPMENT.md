@@ -53,6 +53,15 @@ curl -X POST http://127.0.0.1:7777/v1/speak \
   -d '{"text":"hello","voice":"system-default"}'
 ```
 
+Sprint 3 scope/index quick test:
+```bash
+curl -X POST http://127.0.0.1:7777/v1/index/scopes \
+  -H "content-type: application/json" \
+  -d '{"path":"/workspace/tmp","enabled":true}'
+
+curl "http://127.0.0.1:7777/v1/search?q=tmp"
+```
+
 Run unit tests:
 ```bash
 cargo test -p core-daemon --lib -- --nocapture
