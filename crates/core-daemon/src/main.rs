@@ -1,9 +1,11 @@
+mod extractor;
 mod index_store;
+mod keyword_index;
 
 use axum::{
     extract::{Path, Query, State, WebSocketUpgrade},
     response::IntoResponse,
-    routing::{delete, get, patch, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use std::{
@@ -23,6 +25,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::index_store::IndexStore;
+use crate::keyword_index::KeywordIndex;
 
 use core_daemon::classify_tool_preview;
 use core_daemon::speech;
@@ -41,6 +44,7 @@ struct AppState {
     voice_settings: Arc<Mutex<VoiceSettings>>,
     active_speech_task: Arc<Mutex<Option<JoinHandle<()>>>>,
     index_store: Arc<IndexStore>,
+    keyword_index: Arc<KeywordIndex>,
     watcher_tasks: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
 }
 
@@ -55,6 +59,10 @@ async fn main() {
         let _ = std::fs::create_dir_all(parent);
     }
     let index_store = IndexStore::new(db_path).expect("initialize index store");
+    let keyword_index_dir =
+        std::env::var("AIOS_KEYWORD_INDEX_DIR").unwrap_or_else(|_| "./.aios/keyword-index".to_string());
+    let keyword_index =
+        KeywordIndex::open_or_create(&keyword_index_dir).expect("initialize keyword index");
 
     let state = AppState {
         name: Arc::new("AI-OS Core Daemon".to_string()),
@@ -66,6 +74,7 @@ async fn main() {
         })),
         active_speech_task: Arc::new(Mutex::new(None)),
         index_store: Arc::new(index_store),
+        keyword_index: Arc::new(keyword_index),
         watcher_tasks: Arc::new(Mutex::new(HashMap::new())),
     };
 
@@ -131,6 +140,7 @@ async fn start_scope_watcher(state: AppState, scope: IndexScope) {
     let scope_id = scope.id.clone();
     let scope_path = scope.path.clone();
     let tx = state.events_tx.clone();
+    let state_for_index = state.clone();
     let store = state.index_store.clone();
 
     let handle = tokio::spawn(async move {
@@ -214,15 +224,20 @@ async fn start_scope_watcher(state: AppState, scope: IndexScope) {
                     Some(*size),
                     Some(mtime),
                 );
+                let _ = state_for_index.keyword_index.delete_path(old_path);
+                upsert_keyword_index_for_path(&state_for_index, &scope_id, new_path);
             }
             for (path, size, mtime) in &remaining_creates {
                 let _ = store.upsert_file_metadata(&scope_id, path, Some(*size), Some(mtime));
+                upsert_keyword_index_for_path(&state_for_index, &scope_id, path);
             }
             for (path, size, mtime) in &updates {
                 let _ = store.upsert_file_metadata(&scope_id, path, Some(*size), Some(mtime));
+                upsert_keyword_index_for_path(&state_for_index, &scope_id, path);
             }
             for old_path in &remaining_deletes {
                 let _ = store.delete_file_metadata(old_path);
+                let _ = state_for_index.keyword_index.delete_path(old_path);
             }
 
             // Debounced batch event (single websocket message per polling cycle)
@@ -265,6 +280,12 @@ async fn start_scope_watcher(state: AppState, scope: IndexScope) {
 async fn stop_scope_watcher(state: &AppState, scope_id: &str) {
     if let Some(handle) = state.watcher_tasks.lock().await.remove(scope_id) {
         handle.abort();
+    }
+}
+
+fn upsert_keyword_index_for_path(state: &AppState, scope_id: &str, path: &str) {
+    if let Some(content) = extractor::extract_supported_text(path) {
+        let _ = state.keyword_index.upsert(scope_id, path, &content);
     }
 }
 
@@ -534,14 +555,26 @@ async fn ingest_index_event(
     }
 
     let ok = match req.event_type {
-        IndexEventType::Create | IndexEventType::Update => state
-            .index_store
-            .upsert_file_metadata(&req.scope_id, &path, req.size_bytes, req.mtime.as_deref())
-            .is_ok(),
-        IndexEventType::Delete => state.index_store.delete_file_metadata(&path).is_ok(),
+        IndexEventType::Create | IndexEventType::Update => {
+            let db_ok = state
+                .index_store
+                .upsert_file_metadata(&req.scope_id, &path, req.size_bytes, req.mtime.as_deref())
+                .is_ok();
+            if db_ok {
+                upsert_keyword_index_for_path(&state, &req.scope_id, &path);
+            }
+            db_ok
+        }
+        IndexEventType::Delete => {
+            let db_ok = state.index_store.delete_file_metadata(&path).is_ok();
+            if db_ok {
+                let _ = state.keyword_index.delete_path(&path);
+            }
+            db_ok
+        }
         IndexEventType::Rename => {
             if let Some(old_path) = req.renamed_from.as_deref() {
-                state
+                let db_ok = state
                     .index_store
                     .rename_file_metadata(
                         old_path,
@@ -550,7 +583,12 @@ async fn ingest_index_event(
                         req.size_bytes,
                         req.mtime.as_deref(),
                     )
-                    .is_ok()
+                    .is_ok();
+                if db_ok {
+                    let _ = state.keyword_index.delete_path(old_path);
+                    upsert_keyword_index_for_path(&state, &req.scope_id, &path);
+                }
+                db_ok
             } else {
                 false
             }
@@ -581,7 +619,22 @@ async fn search_scopes(
     let results = if q.is_empty() {
         Vec::new()
     } else {
-        state.index_store.search_scope_paths(&q).unwrap_or_default()
+        let mut out = state.keyword_index.search(&q, 25).unwrap_or_default().into_iter().map(|hit| {
+            core_daemon::types::SearchResultItem {
+                scope_id: hit.scope_id,
+                path: hit.path,
+                match_reason: "keyword_content_match",
+                title: Some(hit.title),
+                snippet_html: Some(hit.snippet),
+                score: Some(hit.score),
+            }
+        }).collect::<Vec<_>>();
+
+        if out.is_empty() {
+            out = state.index_store.search_scope_paths(&q).unwrap_or_default();
+        }
+
+        out
     };
 
     Json(SearchResponse {
@@ -759,6 +812,10 @@ mod tests {
         let db_path = db_file.path().to_string_lossy().to_string();
         drop(db_file);
         let store = IndexStore::new(db_path).expect("init temp index store");
+        let keyword_dir = std::env::temp_dir().join(format!("aios-keyword-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&keyword_dir).expect("create temp keyword dir");
+        let keyword_index =
+            KeywordIndex::open_or_create(&keyword_dir.to_string_lossy()).expect("init temp keyword index");
 
         AppState {
             name: Arc::new("AI-OS Core Daemon".to_string()),
@@ -770,6 +827,7 @@ mod tests {
             })),
             active_speech_task: Arc::new(Mutex::new(None)),
             index_store: Arc::new(store),
+            keyword_index: Arc::new(keyword_index),
             watcher_tasks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -1043,6 +1101,58 @@ mod tests {
         let deleted = body_json(delete_resp).await;
         assert_eq!(deleted["ok"], true);
         assert!(deleted["deleted_id"].is_string());
+    }
+
+    #[tokio::test]
+    async fn keyword_search_returns_snippet_for_supported_file() {
+        let app = test_app();
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let file_path = temp_dir.path().join("notes.md");
+        std::fs::write(&file_path, "alpha beta sprint4 keyword match").expect("write file");
+
+        let create_resp = app
+            .clone()
+            .oneshot(post_json(
+                "/v1/index/scopes",
+                json!({ "path": temp_dir.path().to_string_lossy(), "enabled": false }),
+            ))
+            .await
+            .unwrap();
+        let created = body_json(create_resp).await;
+        let scope_id = created["scopes"][0]["id"].as_str().unwrap().to_string();
+
+        let ingest_resp = app
+            .clone()
+            .oneshot(post_json(
+                "/v1/index/events",
+                json!({
+                    "scope_id": scope_id,
+                    "path": file_path.to_string_lossy(),
+                    "event_type": "create",
+                    "size_bytes": 64,
+                    "mtime": "2026-02-28T00:00:00Z"
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(ingest_resp.status(), 200);
+
+        let search_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/search?q=keyword")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(search_resp.status(), 200);
+        let body = body_json(search_resp).await;
+        let results = body["results"].as_array().unwrap();
+        assert!(!results.is_empty());
+        assert_eq!(results[0]["match_reason"], "keyword_content_match");
+        assert!(results[0]["snippet_html"].is_string());
     }
 
     #[tokio::test]
